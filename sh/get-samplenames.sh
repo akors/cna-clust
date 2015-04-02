@@ -1,12 +1,7 @@
 #!/bin/sh
 
-pushd () {
-    command pushd "$@" > /dev/null
-}
-
-popd () {
-    command popd "$@" > /dev/null
-}
+pushd () { command pushd "$@" > /dev/null; }
+popd () { command popd "$@" > /dev/null; }
 
 printf '# 454 samples\n'
 pushd /export/bse/454
