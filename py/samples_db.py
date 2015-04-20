@@ -121,8 +121,67 @@ def symlink_consolidate(realpaths, symlinks):
 def write_reads(names):
     pass
 
+
+INIT_DB_SCRIPT = """
+CREATE TABLE IF NOT EXISTS Animals (
+    AnimalName TEXT PRIMARY KEY,
+    Source TEXT,  -- optional
+    Condition TEXT
+        CHECK(Condition IN ('classical', 'ltype', 'htype', 'control', 'amprolium'))
+        NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS AnimalAliases (
+    Alias TEXT UNIQUE NOT NULL,
+    AnimalName TEXT NOT NULL,
+    FOREIGN KEY(AnimalName) REFERENCES Animals(AnimalName)
+);
+
+CREATE TABLE IF NOT EXISTS Samples (
+    SampleID INTEGER PRIMARY KEY,
+    AnimalName TEXT NOT NULL,
+    Timepoint INTEGER NOT NULL,
+    Severity Integer
+        CHECK(Severity BETWEEN 0 AND 3),
+    FOREIGN KEY(AnimalName) REFERENCES Animals(AnimalName)
+);
+
+CREATE TABLE IF NOT EXISTS ReadFiles (
+    ReadFileID INTEGER PRIMARY KEY,
+    SampleID INTEGER,
+    FilePath TEXT NOT NULL,
+    FilePathQuality TEXT, 
+    Type TEXT
+        CHECK(Type IN ('fastq', 'fastaqual'))
+        NOT NULL,
+    Method TEXT
+        CHECK(Type IN ('454', 'illumina'))
+        NOT NULL,
+    FOREIGN KEY(SampleID) REFERENCES Samples(SampleID)
+);
+
+"""
+
+
 def init_db(db_connection=db_connection):
     pass
+
+
+
+
+# ===================== Command line processing functions =====================
+
+def main_index_reads(args):
+    for d in args.dirs:
+        fq, fa = scan_reads(d)
+        for f in itertools.chain(fq, fa):
+            print('{0}'.format(f[0]))
+
+def main_init_db(args):
+    pass
+
+    
+
 
 # ============================ Script entry point =============================
 
@@ -130,20 +189,49 @@ if __name__ == "__main__":
     import argparse
 
 
-# ============================ Script entry point =============================
+    # ========================= Main argument parser ==========================
 
 
-    top_parser = argparse.ArgumentParser(
+
+    parser_top = argparse.ArgumentParser(
         description='Sample database management')
 
-    top_parser.add_argument('--log_level', action="store",
+    parser_top.add_argument('--log_level', action="store",
                       type=str, dest='log_level',
                       metavar='LOG_LEVEL',
                       help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
 
+    parser_top.add_argument('-d', '--database', action="store",
+                      type=str, dest='db_file',
+                      metavar='DB_FILE',
+                      help='Filename of the database that will be used')
 
-    args = top_parser.parse_args()
+    subparsers = parser_top.add_subparsers(title='Actions', description='Available database actions', dest='main_action')
+    
 
+    
+    # ========================= init-db argument parser ==========================
+
+    parser_init_db = subparsers.add_parser('init-db', help='Create an empty read database file')
+
+    parser_init_db.add_argument('--animals', action="store",
+                      type=str, dest='animals_csv',
+                      metavar='ANIMALS_CSV',
+                      help='Filename of a semicolon seperated file name with one tuple of (animal name; animal source; disease condition) per line')
+
+    parser_init_db.add_argument('--aliases', action="store",
+                      type=str, dest='aliases_csv',
+                      metavar='ALIASES_CSV',
+                      help='Filename of a semicolon seperated file name with one tuple of (alias; animal name) per line')
+
+    # ========================= index-reads argument parser ==========================
+
+    parser_index_reads = subparsers.add_parser('index-reads', help='Index all read files in subdirectories')
+    parser_index_reads.add_argument(metavar='DIR', nargs='+', type=str, dest='dirs', help='Directories that shall be indexed')
+
+
+
+    args = parser_top.parse_args()
 
     if args.log_level in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
         log_level = getattr(logging, args.log_level.upper())
@@ -156,8 +244,13 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
 
-    for d in SCANDIRS:
-        fq, fa = scan_reads(d)
-        for f in itertools.chain(fq, fa):
-            print('{0}'.format(f[0]))
+
+
+    if args.main_action == None:
+        parser_top.error('No action selected')
+    elif args.main_action == 'init-db':
+        main_init_db(args)
+    elif args.main_action == 'index-reads':
+        main_index_reads(args)
+
 
