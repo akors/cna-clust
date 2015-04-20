@@ -1,5 +1,7 @@
 #!/usr/local/bin/python3
 
+# (C) 2015, Alexander Korsunsky
+
 import logging, configparser
 
 import os, sys
@@ -113,15 +115,20 @@ def scan_reads(directory):
 
     return (list_fastq, list_fastaqual)
 
-def write_samples(names, db_connection=db_connection):
+def write_samples(samples, db_connection=db_connection):
     pass
 
-def symlink_consolidate(realpaths, symlinks):
-    pass
 
-def write_reads(names):
-    pass
+def write_reads(list_fastq, list_fastaqual, db_connection=db_connection):
+    db_cursor = db_connection.cursor()
 
+    db_cursor.executemany('INSERT OR IGNORE INTO ReadFiles(FilePath, FilePathQuality, Type) VALUES(?, ?, ?)',
+        [(f[0], f[1], 'fastq') for f in list_fastq])
+
+    db_cursor.executemany('INSERT OR IGNORE INTO ReadFiles(FilePath, FilePathQuality, Type) VALUES(?, ?, ?)',
+        [(f[0], f[1], 'fastaqual') for f in list_fastaqual])
+
+    db_connection.commit()
 
 INIT_DB_SCRIPT = """
 CREATE TABLE IF NOT EXISTS Animals (
@@ -142,6 +149,9 @@ CREATE TABLE IF NOT EXISTS Samples (
     SampleID INTEGER PRIMARY KEY,
     AnimalName TEXT NOT NULL,
     Timepoint INTEGER NOT NULL,
+    Method TEXT
+        CHECK(Method IN ('454', 'illumina'))
+        NOT NULL,
     Severity Integer
         CHECK(Severity BETWEEN 0 AND 3),
     FOREIGN KEY(AnimalName) REFERENCES Animals(AnimalName)
@@ -150,13 +160,10 @@ CREATE TABLE IF NOT EXISTS Samples (
 CREATE TABLE IF NOT EXISTS ReadFiles (
     ReadFileID INTEGER PRIMARY KEY,
     SampleID INTEGER,
-    FilePath TEXT NOT NULL,
+    FilePath TEXT UNIQUE NOT NULL,
     FilePathQuality TEXT, 
     Type TEXT
         CHECK(Type IN ('fastq', 'fastaqual'))
-        NOT NULL,
-    Method TEXT
-        CHECK(Type IN ('454', 'illumina'))
         NOT NULL,
     FOREIGN KEY(SampleID) REFERENCES Samples(SampleID)
 );
@@ -173,15 +180,11 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 
     if animals_csv:
         reader = csv.reader(animals_csv, delimiter=';', quotechar='"')
-        for row in reader:
-            db_cursor.execute('INSERT INTO Animals Values (?, ?, ?)', row)
-            print("inserted ", row)
+        db_cursor.executemany('INSERT INTO Animals Values (?, ?, ?)', reader)
     
     if aliases_csv:
         reader = csv.reader(aliases_csv, delimiter=';', quotechar='"')
-        for row in reader:
-            db_cursor.execute('INSERT INTO AnimalAliases Values (?, ?)', row)
-            print("inserted ", row)
+        db_cursor.executemany('INSERT INTO AnimalAliases Values (?, ?)', reader)
     
     db_connection.commit()
 
@@ -190,12 +193,18 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 # ===================== Command line processing functions =====================
 
 def main_index_reads(args, parser):
+    global db_connection
+
+    if args.db_file:
+        db_connection = sqlite3.connect(args.db_file)
+
     for d in args.dirs:
         fq, fa = scan_reads(d)
-        for f in itertools.chain(fq, fa):
-            print('{0}'.format(f[0]))
+        write_reads(fq, fa, db_connection)
 
 def main_init_db(args, parser):
+    global db_connection
+
     if args.db_file:
         db_connection = sqlite3.connect(args.db_file)
 
