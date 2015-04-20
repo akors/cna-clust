@@ -7,6 +7,7 @@ import re
 import itertools
 
 import sqlite3
+import csv
 
 
 # =============================== Set up logging ==============================
@@ -163,24 +164,45 @@ CREATE TABLE IF NOT EXISTS ReadFiles (
 """
 
 
-def init_db(db_connection=db_connection):
-    pass
+def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
+    db_connection.executescript(INIT_DB_SCRIPT)
+    db_cursor = db_connection.cursor()
 
+    if aliases_csv and not animals_csv:
+        raise AssertionError("animals_csv required if aliases_csv is provided")    
+
+    if animals_csv:
+        reader = csv.reader(animals_csv, delimiter=';', quotechar='"')
+        for row in reader:
+            db_cursor.execute('INSERT INTO Animals Values (?, ?, ?)', row)
+            print("inserted ", row)
+    
+    if aliases_csv:
+        reader = csv.reader(aliases_csv, delimiter=';', quotechar='"')
+        for row in reader:
+            db_cursor.execute('INSERT INTO AnimalAliases Values (?, ?)', row)
+            print("inserted ", row)
+    
+    db_connection.commit()
 
 
 
 # ===================== Command line processing functions =====================
 
-def main_index_reads(args):
+def main_index_reads(args, parser):
     for d in args.dirs:
         fq, fa = scan_reads(d)
         for f in itertools.chain(fq, fa):
             print('{0}'.format(f[0]))
 
-def main_init_db(args):
-    pass
+def main_init_db(args, parser):
+    if args.db_file:
+        db_connection = sqlite3.connect(args.db_file)
 
-    
+    if args.aliases_csv and not args.animals_csv:
+        parser.error("animals_csv required if aliases_csv is provided")
+
+    init_db(db_connection, animals_csv=args.animals_csv, aliases_csv=args.aliases_csv)
 
 
 # ============================ Script entry point =============================
@@ -215,12 +237,12 @@ if __name__ == "__main__":
     parser_init_db = subparsers.add_parser('init-db', help='Create an empty read database file')
 
     parser_init_db.add_argument('--animals', action="store",
-                      type=str, dest='animals_csv',
+                      type=argparse.FileType('rt'), dest='animals_csv',
                       metavar='ANIMALS_CSV',
                       help='Filename of a semicolon seperated file name with one tuple of (animal name; animal source; disease condition) per line')
 
     parser_init_db.add_argument('--aliases', action="store",
-                      type=str, dest='aliases_csv',
+                      type=argparse.FileType('rt'), dest='aliases_csv',
                       metavar='ALIASES_CSV',
                       help='Filename of a semicolon seperated file name with one tuple of (alias; animal name) per line')
 
@@ -249,8 +271,8 @@ if __name__ == "__main__":
     if args.main_action == None:
         parser_top.error('No action selected')
     elif args.main_action == 'init-db':
-        main_init_db(args)
+        main_init_db(args, parser_init_db)
     elif args.main_action == 'index-reads':
-        main_index_reads(args)
+        main_index_reads(args, parser_index_reads)
 
 
