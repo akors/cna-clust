@@ -133,6 +133,57 @@ def animalname_from_alias(alias_or_name, db_connection=db_connection):
 
     return None
 
+
+# ============================ Database iterators =============================
+
+def it_animal(db_connection=db_connection):
+    db_cursor = db_connection.cursor()
+
+    db_cursor.execute('SELECT AnimalName FROM Animals')
+    for row in db_cursor:
+        yield row[0]
+    
+def it_sample(animal=None, db_connection=db_connection):
+    db_cursor = db_connection.cursor()
+
+    if animal:
+        an = animalname_from_alias(animal, db_connection=db_connection)
+        if not an:
+            raise KeyError('No animal with name or alias \"%s\"' % animal)
+        
+        db_cursor.execute('SELECT AnimalName, TimePoint FROM Samples WHERE AnimalName=?', (an,))
+    else:
+        db_cursor.execute('SELECT AnimalName, TimePoint FROM Samples')
+
+    
+    for row in db_cursor:
+        yield row
+
+
+def it_readfile(sample=None, db_connection=db_connection):
+    db_cursor = db_connection.cursor()
+
+    if sample:
+        if not (type(sample) is tuple and len(sample) == 2):
+            raise AssertionError("Argument \"sample\" must be a tuple of (AnimalName, TimePoint)")
+
+        print(sample)
+
+        db_cursor.execute('SELECT SampleID FROM Samples WHERE AnimalName=? AND TimePoint=?', sample)
+        sample_id = db_cursor.fetchone()
+
+        if not sample_id:
+            raise KeyError('No sample exists for animal \"%s\" at timepoint %d' % sample)
+        
+        db_cursor.execute('SELECT FilePath FROM ReadFiles WHERE SampleID=?', sample_id)
+    else:
+        db_cursor.execute('SELECT FilePath FROM ReadFiles')
+
+    
+    for row in db_cursor:
+        yield row[0]
+    
+
 def build_sample_index(regexes, method, db_connection=db_connection):
     db_cursor = db_connection.cursor()
 
@@ -286,7 +337,8 @@ def main_index_samples(args, parser):
     ]
 
     build_sample_index(regexes, 'illumina', db_connection=db_connection)
-    
+
+
 
 
 # ============================ Script entry point =============================
