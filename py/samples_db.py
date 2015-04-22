@@ -44,8 +44,6 @@ DBFILE = config[THISCONF]['dbfile']
 
 logger.debug('Reading sample database {0}'.format(DBFILE))
 
-
-global db_connection
 db_connection = sqlite3.connect(DBFILE)
 db_connection.execute("PRAGMA foreign_keys = ON")
 
@@ -314,14 +312,11 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 # ===================== Command line processing functions =====================
 
 def main_index_reads(args, parser):
-
     for d in args.dirs:
         fq, fa = scan_reads(d)
-        write_reads(fq, fa, db_connection)
+        write_reads(fq, fa, db_connection=db_connection)
 
 def main_init_db(args, parser):
-    global db_connection
-
     if args.aliases_csv and not args.animals_csv:
         parser.error("animals_csv required if aliases_csv is provided")
 
@@ -329,7 +324,6 @@ def main_init_db(args, parser):
 
 
 def main_index_samples(args, parser):
-
     regexes = [
         re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina 
         re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
@@ -346,7 +340,7 @@ def main_list_animals(args, parser):
 
 
 def main_list_samples(args, parser):
-    for s in it_sample(args.animal):
+    for s in it_sample(args.animal, db_connection=db_connection):
         print("{:<6} {: >d}".format(s[0], s[1]))
 
 
@@ -356,7 +350,7 @@ def main_list_readfiles(args, parser):
         return
 
     elif args.animal and not args.timepoint:
-        for s in it_sample(args.animal):
+        for s in it_sample(args.animal, db_connection=db_connection):
             for r in it_readfile(sample=s, db_connection=db_connection):
                 print(r)
 
@@ -366,7 +360,7 @@ def main_list_readfiles(args, parser):
             logger.critical('No animal with name or alias \"%s\"', args.animal)
             return
 
-        for r in it_readfile(sample=(an, args.timepoint)):
+        for r in it_readfile(sample=(an, args.timepoint), db_connection=db_connection):
             print(r)
 
 # ============================ Script entry point =============================
@@ -374,6 +368,8 @@ def main_list_readfiles(args, parser):
 if __name__ == "__main__":
     import argparse
 
+
+    
 
     # ========================= Main argument parser ==========================
 
