@@ -133,15 +133,8 @@ def animalname_from_alias(alias_or_name, db_connection=db_connection):
 
     return None
 
-def build_sample_index(db_connection=db_connection):
+def build_sample_index(regexes, method, db_connection=db_connection):
     db_cursor = db_connection.cursor()
-
-    regexes = [
-        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina 
-        re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
-        re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),     # Amprolium illumina
-        re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                  # Amprolium illumina
-    ]
 
     # Store the Readfiles in lists in a dict attached to samples
     samples_readfiles = dict()
@@ -172,7 +165,7 @@ def build_sample_index(db_connection=db_connection):
     for samplekey in samples_readfiles:
         # add sample
         try:
-            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, 'illumina')", samplekey)
+            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, '%s')" % method, samplekey)
         except sqlite3.IntegrityError:
             # if we failed, we try again with an alias as AnimalName
             animalname = animalname_from_alias(samplekey[0], db_connection=db_connection)
@@ -181,7 +174,7 @@ def build_sample_index(db_connection=db_connection):
                 logger.warning("Animal name or alias \"%s\" not in database" % samplekey[0])
                 continue
             
-            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, 'illumina')", (animalname, samplekey[1]))
+            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, '%s')" % method, (animalname, samplekey[1]))
             
         lastrowid = db_cursor.lastrowid
 
@@ -269,7 +262,6 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 # ===================== Command line processing functions =====================
 
 def main_index_reads(args, parser):
-    global db_connection
 
     for d in args.dirs:
         fq, fa = scan_reads(d)
@@ -282,6 +274,19 @@ def main_init_db(args, parser):
         parser.error("animals_csv required if aliases_csv is provided")
 
     init_db(db_connection, animals_csv=args.animals_csv, aliases_csv=args.aliases_csv)
+
+
+def main_index_samples(args, parser):
+
+    regexes = [
+        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina 
+        re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
+        re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),     # Amprolium illumina
+        re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                  # Amprolium illumina
+    ]
+
+    build_sample_index(regexes, 'illumina', db_connection=db_connection)
+    
 
 
 # ============================ Script entry point =============================
@@ -330,6 +335,12 @@ if __name__ == "__main__":
     parser_index_reads = subparsers.add_parser('index-reads', help='Index all read files in subdirectories')
     parser_index_reads.add_argument(metavar='DIR', nargs='+', type=str, dest='dirs', help='Directories that shall be indexed')
 
+    # ========================= index-samples argument parser ========================
+
+    parser_index_samples = subparsers.add_parser('index-samples', help='Index samples from read files in database')
+
+
+    # ========================= top-level argument parser ==========================
 
 
     args = parser_top.parse_args()
@@ -345,10 +356,10 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
 
-
     if args.db_file:
         db_connection = sqlite3.connect(args.db_file)
         db_connection.execute("PRAGMA foreign_keys = ON")
+
 
     if args.main_action == None:
         parser_top.error('No action selected')
@@ -356,5 +367,7 @@ if __name__ == "__main__":
         main_init_db(args, parser_init_db)
     elif args.main_action == 'index-reads':
         main_index_reads(args, parser_index_reads)
+    elif args.main_action == 'index-samples':
+        main_index_samples(args, parser_index_samples)
 
 
