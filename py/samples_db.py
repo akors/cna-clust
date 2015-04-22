@@ -25,7 +25,7 @@ config = configparser.ConfigParser()
 
 # default config values
 config[THISCONF] = {
-    'dbfile'       : os.getcwd(),
+    'dbfile'   : os.path.join(os.getcwd(), 'samples.db'),
     'scandirs' : os.getcwd()
 }
 
@@ -44,6 +44,7 @@ DBFILE = config[THISCONF]['dbfile']
 
 logger.debug('Reading sample database {0}'.format(DBFILE))
 db_connection = sqlite3.connect(DBFILE)
+db_connection.execute("PRAGMA foreign_keys = ON")
 
 
 
@@ -115,9 +116,84 @@ def scan_reads(directory):
 
     return (list_fastq, list_fastaqual)
 
-def write_samples(samples, db_connection=db_connection):
-    pass
+def animalname_from_alias(alias_or_name, db_connection=db_connection):
+    db_cursor = db_connection.cursor()
 
+    # Check if alias exists. If it does, return the AnimalName
+    db_cursor.execute('SELECT AnimalName FROM AnimalAliases WHERE Alias=?', (alias_or_name,))
+    row = db_cursor.fetchone()
+    if row:
+        return row[0]
+
+    # Check if AnimalName exists. If it does, return it.
+    db_cursor.execute('SELECT AnimalName FROM Animals WHERE AnimalName=?', (alias_or_name,))
+    row = db_cursor.fetchone()
+    if row:
+        return row[0]
+
+    return None
+
+def build_sample_index(db_connection=db_connection):
+    db_cursor = db_connection.cursor()
+
+    regexes = [
+        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina 
+        re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
+        re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),     # Amprolium illumina
+        re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                  # Amprolium illumina
+    ]
+
+    # Store the Readfiles in lists in a dict attached to samples
+    samples_readfiles = dict()
+
+    # iterate through all known files and match respective patterns
+    db_cursor.execute("SELECT FilePath FROM ReadFiles")
+    for row in db_cursor.fetchall():
+        # match each row with one regex
+        for r in regexes:
+            m = r.match(row[0])
+
+            if m:
+                break
+        else: # if all regexes were checked, just continue
+            continue
+            
+        # keys are tuples of (AnimalName, TimePoint)
+        k = (m.group(1), int(m.group(2)))
+
+        # create a new read files list if it doesnt exist for this sample
+        if not k in samples_readfiles:
+            samples_readfiles[k] = list()
+
+        # add read file to read files list for this sample
+        samples_readfiles[k].append(row[0])
+
+    # iterate over known samples
+    for samplekey in samples_readfiles:
+        # add sample
+        try:
+            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, 'illumina')", samplekey)
+        except sqlite3.IntegrityError:
+            # if we failed, we try again with an alias as AnimalName
+            animalname = animalname_from_alias(samplekey[0], db_connection=db_connection)
+
+            if not animalname:
+                logger.warning("Animal name or alias \"%s\" not in database" % samplekey[0])
+                continue
+            
+            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, 'illumina')", (animalname, samplekey[1]))
+            
+        lastrowid = db_cursor.lastrowid
+
+        # create generator that binds the SampleID to each read file
+        it = ((lastrowid, rf) for rf in samples_readfiles[samplekey])
+
+        # Update the ReadFile with the SampleID
+        db_cursor.executemany("UPDATE ReadFiles SET SampleID=? WHERE FilePath=?", it)
+
+    db_connection.commit()
+    pass
+    
 
 def write_reads(list_fastq, list_fastaqual, db_connection=db_connection):
     db_cursor = db_connection.cursor()
@@ -180,11 +256,11 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 
     if animals_csv:
         reader = csv.reader(animals_csv, delimiter=';', quotechar='"')
-        db_cursor.executemany('INSERT INTO Animals Values (?, ?, ?)', reader)
+        db_cursor.executemany('INSERT OR IGNORE INTO Animals Values (?, ?, ?)', reader)
     
     if aliases_csv:
         reader = csv.reader(aliases_csv, delimiter=';', quotechar='"')
-        db_cursor.executemany('INSERT INTO AnimalAliases Values (?, ?)', reader)
+        db_cursor.executemany('INSERT OR IGNORE INTO AnimalAliases Values (?, ?)', reader)
     
     db_connection.commit()
 
@@ -195,18 +271,12 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
 def main_index_reads(args, parser):
     global db_connection
 
-    if args.db_file:
-        db_connection = sqlite3.connect(args.db_file)
-
     for d in args.dirs:
         fq, fa = scan_reads(d)
         write_reads(fq, fa, db_connection)
 
 def main_init_db(args, parser):
     global db_connection
-
-    if args.db_file:
-        db_connection = sqlite3.connect(args.db_file)
 
     if args.aliases_csv and not args.animals_csv:
         parser.error("animals_csv required if aliases_csv is provided")
@@ -276,6 +346,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
 
 
+    if args.db_file:
+        db_connection = sqlite3.connect(args.db_file)
+        db_connection.execute("PRAGMA foreign_keys = ON")
 
     if args.main_action == None:
         parser_top.error('No action selected')
