@@ -43,6 +43,9 @@ SCANDIRS = [e.strip() for e in config[THISCONF]['scandirs'].split(':')]
 DBFILE = config[THISCONF]['dbfile']
 
 logger.debug('Reading sample database {0}'.format(DBFILE))
+
+
+global db_connection
 db_connection = sqlite3.connect(DBFILE)
 db_connection.execute("PRAGMA foreign_keys = ON")
 
@@ -166,8 +169,6 @@ def it_readfile(sample=None, db_connection=db_connection):
     if sample:
         if not (type(sample) is tuple and len(sample) == 2):
             raise AssertionError("Argument \"sample\" must be a tuple of (AnimalName, TimePoint)")
-
-        print(sample)
 
         db_cursor.execute('SELECT SampleID FROM Samples WHERE AnimalName=? AND TimePoint=?', sample)
         sample_id = db_cursor.fetchone()
@@ -339,7 +340,34 @@ def main_index_samples(args, parser):
     build_sample_index(regexes, 'illumina', db_connection=db_connection)
 
 
+def main_list_animals(args, parser):
+    for a in it_animal(db_connection=db_connection):
+        print(a)
 
+
+def main_list_samples(args, parser):
+    for s in it_sample(args.animal):
+        print("{:<6} {: >d}".format(s[0], s[1]))
+
+
+def main_list_readfiles(args, parser):
+    if args.timepoint and not args.animal:
+        parser.error("ANIMAL required if TIMEPOINT is provided")
+        return
+
+    elif args.animal and not args.timepoint:
+        for s in it_sample(args.animal):
+            for r in it_readfile(sample=s, db_connection=db_connection):
+                print(r)
+
+    elif args.animal and args.timepoint:
+        an = animalname_from_alias(args.animal)
+        if not an:
+            logger.critical('No animal with name or alias \"%s\"', args.animal)
+            return
+
+        for r in it_readfile(sample=(an, args.timepoint)):
+            print(r)
 
 # ============================ Script entry point =============================
 
@@ -392,6 +420,27 @@ if __name__ == "__main__":
     parser_index_samples = subparsers.add_parser('index-samples', help='Index samples from read files in database')
 
 
+    # ========================= list-* argument parser ========================
+
+    parser_list_animals = subparsers.add_parser('list-animals', help='List all animals in database')
+
+    parser_list_samples = subparsers.add_parser('list-samples', help='List all samples in database')
+    parser_list_samples.add_argument('--animal', action="store",
+                          type=str, dest='animal',
+                          metavar='ANIMAL',
+                          help='Animal for which the samples should be listed')
+
+
+    parser_list_readfiles = subparsers.add_parser('list-readfiles', help='List all samples in database')
+    parser_list_readfiles.add_argument('--animal', action="store",
+                          type=str, dest='animal',
+                          metavar='ANIMAL',
+                          help='Animal for which the readfiles should be listed')
+    parser_list_readfiles.add_argument('--timepoint', action="store",
+                          type=int, dest='timepoint',
+                          metavar='TIMEPOINT',
+                          help='TIMEPOINT for which the samples should be listed')
+
     # ========================= top-level argument parser ==========================
 
 
@@ -421,5 +470,11 @@ if __name__ == "__main__":
         main_index_reads(args, parser_index_reads)
     elif args.main_action == 'index-samples':
         main_index_samples(args, parser_index_samples)
+    elif args.main_action == 'list-animals':
+        main_list_animals(args, parser_list_animals)
+    elif args.main_action == 'list-samples':
+        main_list_samples(args, parser_list_samples)
+    elif args.main_action == 'list-readfiles':
+        main_list_readfiles(args, parser_list_readfiles)
 
 
