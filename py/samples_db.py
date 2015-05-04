@@ -67,7 +67,7 @@ def scan_reads(directory):
     for dirpath, dirnames, filenames in os.walk(directory, topdown=True):
         for filename in filenames:
             fullpath  = os.path.join(dirpath, filename)
-            
+
             # FASTQ files with nucleotides and quality files
             match = pat_fastq.match(filename)
             if match:
@@ -78,15 +78,13 @@ def scan_reads(directory):
                     list_fastq_symlinks.append((fullpath, None))
                 else:
                     list_fastq.append((fullpath, None))
-                    
+
                 continue
 
             # FASTA files nucleotides
             match = pat_fasta.match(filename)
             if pat_fasta.match(filename):
                 # logger.debug('matched file {0} as FASTA/QUAL'.format(os.path.join(dirpath, filename)))
-
-                
 
                 if os.path.isfile(os.path.join(dirpath, match.group(1) + '.qual')):
                     qualpath = os.path.join(dirpath, match.group(1) + '.qual')
@@ -101,9 +99,9 @@ def scan_reads(directory):
                     list_fastaqual_symlink.append((fullpath, qualpath))
                 else:
                     list_fastaqual.append((fullpath, qualpath))
-                    
+
                 continue
-    
+
     # add symlinks that do not point to any of the files in the list
     pathlist = [p[0] for p in list_fastq]
     list_fastq.extend(
@@ -143,7 +141,7 @@ def it_animal(db_connection=db_connection):
     db_cursor.execute('SELECT AnimalName FROM Animals')
     for row in db_cursor:
         yield row[0]
-    
+
 def it_sample(animal=None, db_connection=db_connection):
     db_cursor = db_connection.cursor()
 
@@ -151,12 +149,12 @@ def it_sample(animal=None, db_connection=db_connection):
         an = animalname_from_alias(animal, db_connection=db_connection)
         if not an:
             raise KeyError('No animal with name or alias \"%s\"' % animal)
-        
+
         db_cursor.execute('SELECT AnimalName, TimePoint FROM Samples WHERE AnimalName=?', (an,))
     else:
         db_cursor.execute('SELECT AnimalName, TimePoint FROM Samples')
 
-    
+
     for row in db_cursor:
         yield row
 
@@ -173,15 +171,15 @@ def it_readfile(sample=None, db_connection=db_connection):
 
         if not sample_id:
             raise KeyError('No sample exists for animal \"%s\" at timepoint %d' % sample)
-        
+
         db_cursor.execute('SELECT FilePath FROM ReadFiles WHERE SampleID=?', sample_id)
     else:
         db_cursor.execute('SELECT FilePath FROM ReadFiles')
 
-    
+
     for row in db_cursor:
         yield row[0]
-    
+
 
 def build_sample_index(regexes, method, db_connection=db_connection):
     db_cursor = db_connection.cursor()
@@ -200,7 +198,7 @@ def build_sample_index(regexes, method, db_connection=db_connection):
                 break
         else: # if all regexes were checked, just continue
             continue
-            
+
         # keys are tuples of (AnimalName, TimePoint)
         k = (m.group(1), int(m.group(2)))
 
@@ -223,9 +221,9 @@ def build_sample_index(regexes, method, db_connection=db_connection):
             if not animalname:
                 logger.warning("Animal name or alias \"%s\" not in database" % samplekey[0])
                 continue
-            
+
             db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, '%s')" % method, (animalname, samplekey[1]))
-            
+
         lastrowid = db_cursor.lastrowid
 
         # create generator that binds the SampleID to each read file
@@ -236,7 +234,7 @@ def build_sample_index(regexes, method, db_connection=db_connection):
 
     db_connection.commit()
     pass
-    
+
 
 def write_reads(list_fastq, list_fastaqual, db_connection=db_connection):
     db_cursor = db_connection.cursor()
@@ -300,11 +298,11 @@ def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
     if animals_csv:
         reader = csv.reader(animals_csv, delimiter=';', quotechar='"')
         db_cursor.executemany('INSERT OR IGNORE INTO Animals Values (?, ?, ?)', reader)
-    
+
     if aliases_csv:
         reader = csv.reader(aliases_csv, delimiter=';', quotechar='"')
         db_cursor.executemany('INSERT OR IGNORE INTO AnimalAliases Values (?, ?)', reader)
-    
+
     db_connection.commit()
 
 
@@ -369,10 +367,8 @@ if __name__ == "__main__":
     import argparse
 
 
-    
 
     # ========================= Main argument parser ==========================
-
 
 
     parser_top = argparse.ArgumentParser(
@@ -389,9 +385,8 @@ if __name__ == "__main__":
                       help='Filename of the database that will be used')
 
     subparsers = parser_top.add_subparsers(title='Actions', description='Available database actions', dest='main_action')
-    
 
-    
+
     # ========================= init-db argument parser ==========================
 
     parser_init_db = subparsers.add_parser('init-db', help='Create an empty read database file')
