@@ -30,6 +30,12 @@ for p in sys.path:
         logger.debug('Found config file in: ' + cfg_filepath)
         config.read(cfg_filepath)
         break
+else:
+    cfg_filepath = None
+
+def reload_config():
+    if cfg_filepath:
+        config.read(cfg_filepath)
 
 
 # ============================= Class definitions =============================
@@ -53,7 +59,7 @@ class Bowtie2(running.Tool):
 
 
     def __init__(self):
-        super().__init__(running.BinaryExecutable(Bowtie2.name))
+        super().__init__(running.BinaryExecutable("bowtie2"))
         self.config      = Bowtie2Config()
 
     def get_name(self):
@@ -83,11 +89,11 @@ class Bowtie2(running.Tool):
         args.append(sam_outfile)
 
         if unal_outfile:
-            args.append("-S")
+            args.append("--un")
             args.append(unal_outfile)
 
         retcode, stdoutfname, stderrfname = super().run(working_dir, *self.config.tokens(*args))
-        logger.debug('Process %s terminated with return code %d. stdout: %s, stderr: %s', retcode, stdoutfname, stderrfname)
+        logger.debug('Process %s terminated with return code %d. stdout: %s, stderr: %s', str(self.executable) ,retcode, stdoutfname, stderrfname)
 
 
 
@@ -226,7 +232,7 @@ class Bowtie2Job(running.Job):
 if __name__ == "__main__":
     import argparse
 
-    def main_align_all(args, parser):
+    def main_align_atypical(args, parser):
         global db_connection
         db_cursor = db_connection.cursor()
 
@@ -240,8 +246,8 @@ if __name__ == "__main__":
         samples = list()
 
         ## add all illumina samples with atypical bse
-        #db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND Condition IN ("ltype", "htype", "amprolium")')
-        #samples.extend(db_cursor)
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
+        samples.extend(db_cursor)
 
         # add atypical controls
         db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
@@ -258,7 +264,7 @@ if __name__ == "__main__":
                 working_dir=os.path.join(output_dir, samplename),
                 seq_infiles=readfiles,
                 sam_outfile=samplename+".sam",
-                unal_outfile=(samplename+".unal.sam")))
+                unal_outfile=(samplename+".unal.fastq")))
 
         running.run_jobs(jobs, num_threads=1)
 
@@ -284,9 +290,9 @@ if __name__ == "__main__":
 
     # ========================= index-reads argument parser ==========================
 
-    parser_align_all = subparsers.add_parser('align-all', help='Align "all" readfiles')
+    parser_align_atypical = subparsers.add_parser('align-atypical', help='Align readfiles for atypical samples')
 
-    parser_align_all.add_argument('-o', '--output_directory', action="store",
+    parser_align_atypical.add_argument('-o', '--output_directory', action="store",
                       type=str, dest='output_dir',
                       metavar='OUTPUT_DIRECTORY',
                       help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
@@ -315,8 +321,8 @@ if __name__ == "__main__":
 
     if args.main_action == None:
         parser_top.error('No action selected')
-    elif args.main_action == 'align-all':
-        main_align_all(args, parser_align_all)
+    elif args.main_action == 'align-atypical':
+        main_align_atypical(args, parser_align_atypical)
 
 
 

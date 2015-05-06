@@ -97,7 +97,7 @@ class Tool(object):
 
     def __init__(self, executable):
         """Construct a Tool object with executable als executable object"""
-        logger.debug("Creating Tool object with executable %s", executable)
+        #logger.debug("Creating Tool object with executable %s", executable)
         self.executable = executable
         self.config      = CommandLineConfig()
 
@@ -177,10 +177,12 @@ class Job(object):
 
 
 def run_jobs(jobs, num_threads=1):
+    num_threads=1 # we don't know parallelism for now
+
     result     = dict()
     exceptions = dict()
 
-    logger.info("Running %d jobs.", len(jobs))
+    logger.info("Running %d jobs on %d threads.", len(jobs), num_threads)
 
     for j in jobs:
         try:
