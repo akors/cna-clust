@@ -97,7 +97,7 @@ class Tool(object):
     def __init__(self, executable):
         """Construct a Tool object with executable als executable object"""
         logger.debug("Creating Tool object with executable %s", executable)
-        self.__executable = executable
+        self.executable = executable
         self.config      = CommandLineConfig()
 
     def get_name(self):
@@ -131,11 +131,11 @@ class Tool(object):
         __stderr_file, stderrfname = tempfile.mkstemp(prefix='stderr_', suffix='.txt', dir=working_dir)
 
         logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
-                  self.get_displayname(), self.__executable.get_execute_line(*args), working_dir)
+                  self.get_displayname(), self.executable.get_execute_line(*args), working_dir)
 
         # launch process
         __process = subprocess.Popen(
-            self.__executable.get_execute_tokens(*args), cwd=working_dir,
+            self.executable.get_execute_tokens(*args), cwd=working_dir,
             stdout=__stdout_file, stderr=__stderr_file, close_fds=True,
         )
         __process.wait()
@@ -154,5 +154,20 @@ class Tool(object):
         return retcode, stdoutfname, stderrfname
 
 
+class Job(object):
+    def __call__(self):
+        return None
 
+def run_jobs(jobs, num_threads=1):
+    result     = dict()
+    exceptions = dict()
+
+    for j in jobs:
+        try:
+            result[j] = j()
+        except Exception as e:
+            logger.exception("Error running job %s", str(j))
+            exceptions[j] = e
+
+    return result, exceptions
 
