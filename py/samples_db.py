@@ -33,7 +33,7 @@ for p in sys.path:
     cfg_filepath = os.path.join(p, 'config.ini')
     if os.path.exists(cfg_filepath):
         logger.debug('Found config file in: ' + cfg_filepath)
-        config.read('config.ini')
+        config.read(cfg_filepath)
         break
 
 SCANDIRS = [e.strip() for e in config[THISCONF]['scandirs'].split(':')]
@@ -42,7 +42,7 @@ SCANDIRS = [e.strip() for e in config[THISCONF]['scandirs'].split(':')]
 
 DBFILE = config[THISCONF]['dbfile']
 
-logger.debug('Reading sample database {0}'.format(DBFILE))
+logger.debug('Opening sample database {0}'.format(DBFILE))
 
 db_connection = sqlite3.connect(DBFILE)
 db_connection.execute("PRAGMA foreign_keys = ON")
@@ -181,7 +181,7 @@ def it_readfile(sample=None, db_connection=db_connection):
         yield row[0]
 
 
-def build_sample_index(regexes, method, db_connection=db_connection):
+def build_sample_index(regexes, method, db_connection):
     db_cursor = db_connection.cursor()
 
     # Store the Readfiles in lists in a dict attached to samples
@@ -236,7 +236,7 @@ def build_sample_index(regexes, method, db_connection=db_connection):
     pass
 
 
-def write_reads(list_fastq, list_fastaqual, db_connection=db_connection):
+def write_reads(list_fastq, list_fastaqual, db_connection):
     db_cursor = db_connection.cursor()
 
     db_cursor.executemany('INSERT OR IGNORE INTO ReadFiles(FilePath, FilePathQuality, Type) VALUES(?, ?, ?)',
@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS ReadFiles (
 """
 
 
-def init_db(db_connection=db_connection, animals_csv=None, aliases_csv=None):
+def init_db(db_connection, animals_csv=None, aliases_csv=None):
     db_connection.executescript(INIT_DB_SCRIPT)
     db_cursor = db_connection.cursor()
 
