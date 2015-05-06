@@ -28,7 +28,7 @@ for p in sys.path:
     cfg_filepath = os.path.join(p, 'config.ini')
     if os.path.exists(cfg_filepath):
         logger.debug('Found config file in: ' + cfg_filepath)
-        config.read('config.ini')
+        config.read(cfg_filepath)
         break
 
 
@@ -182,3 +182,143 @@ class samtools_sortsam(running.Tool):
         logger.debug("samtools sort process %d returned.", __sort_process.pid)
 
         return os.path.join(working_dir, os.path.basename(bam_outfile + '.bam'))
+
+
+
+class Bowtie2Job(running.Job):
+    def __init__(self, working_dir, seq_infiles, sam_outfile, unal_outfile=None, read_format='fastq'):
+        self.tool = Bowtie2()
+
+        self.working_dir = working_dir
+        self.seq_infiles = seq_infiles
+        self.sam_outfile = sam_outfile
+        self.unal_outfile = unal_outfile
+        self.read_format = read_format
+
+    def set_config(self, config):
+        self.tool.config = config
+
+    def __call__(self):
+        self.start()
+
+        #logger.info("Would run %s", self)
+        self.tool.run(
+            self.working_dir,
+            self.seq_infiles,
+            self.sam_outfile,
+            self.unal_outfile,
+            self.read_format
+        )
+
+        self.end()
+
+    def __str__(self):
+        return "Bowtie2 create alignment {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
+
+
+
+
+
+
+
+# ============================ Script entry point =============================
+
+if __name__ == "__main__":
+    import argparse
+
+    def main_align_all(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get output directory
+        if args.output_dir == None:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        jobs = list()
+        samples = list()
+
+        ## add all illumina samples with atypical bse
+        #db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND Condition IN ("ltype", "htype", "amprolium")')
+        #samples.extend(db_cursor)
+
+        # add atypical controls
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            # get read files
+            db_cursor.execute('SELECT FilePath from ReadFiles NATURAL JOIN Samples WHERE AnimalName=? AND TimePoint=?', (sample[0], sample[1]))
+            readfiles = [row[0] for row in db_cursor]
+
+            jobs.append(Bowtie2Job(
+                working_dir=os.path.join(output_dir, samplename),
+                seq_infiles=readfiles,
+                sam_outfile=samplename+".sam",
+                unal_outfile=(samplename+".unal.sam")))
+
+        running.run_jobs(jobs, num_threads=1)
+
+
+    # ========================= Main argument parser ==========================
+
+
+    parser_top = argparse.ArgumentParser(
+        description='Batch-Process CNS sample')
+
+    parser_top.add_argument('--log_level', action="store",
+                      type=str, dest='log_level',
+                      metavar='LOG_LEVEL',
+                      help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
+
+    parser_top.add_argument('-d', '--database', action="store",
+                      type=str, dest='db_file',
+                      metavar='DB_FILE',
+                      help='Filename of the samples database. Default is %s.' % samples_db.DBFILE)
+
+    subparsers = parser_top.add_subparsers(title='Actions', description='Available batch operations', dest='main_action')
+
+
+    # ========================= index-reads argument parser ==========================
+
+    parser_align_all = subparsers.add_parser('align-all', help='Align "all" readfiles')
+
+    parser_align_all.add_argument('-o', '--output_directory', action="store",
+                      type=str, dest='output_dir',
+                      metavar='OUTPUT_DIRECTORY',
+                      help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
+
+
+    args = parser_top.parse_args()
+
+    if args.log_level in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
+        log_level = getattr(logging, args.log_level.upper())
+    elif args.log_level == None:
+        # default is LOGDEFAULT
+        log_level = LOGDEFAULT
+    else:
+        print("Unknown logging level {0}. Using {1}.".format(args.log_level, logging.getLevelName(LOGDEFAULT)))
+        log_level = LOGDEFAULT
+
+    logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
+
+    global db_connection
+
+    if args.db_file:
+        db_connection = sqlite3.connect(args.db_file)
+        db_connection.execute("PRAGMA foreign_keys = ON")
+    else:
+        db_connection = samples_db.db_connection
+
+    if args.main_action == None:
+        parser_top.error('No action selected')
+    elif args.main_action == 'align-all':
+        main_align_all(args, parser_align_all)
+
+
+
+
+

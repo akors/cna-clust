@@ -7,6 +7,7 @@
 import logging
 
 import os, shutil, tempfile
+import time
 import distutils
 
 import subprocess
@@ -155,16 +156,41 @@ class Tool(object):
 
 
 class Job(object):
+    def __init__(self):
+        self.time = 0
+        self.starttime = None
+
     def __call__(self):
         return None
+
+    def start(self):
+        self.starttime = time.time()
+
+    def end(self):
+        if not self.starttime:
+            logger.warning("Job %s : start() was not called" % str(self))
+            return None
+
+        self.time = time.time() - self.starttime
+        return self.time
+
+
 
 def run_jobs(jobs, num_threads=1):
     result     = dict()
     exceptions = dict()
 
+    logger.info("Running %d jobs.", len(jobs))
+
     for j in jobs:
         try:
             result[j] = j()
+
+            if (j.time):
+                logger.info("Job `{0:s}` ran {1:.0f} seconds".format(str(j), j.time))
+
+            logger.info("Completed %d of %d jobs.", len(result)+len(exceptions), len(jobs))
+
         except Exception as e:
             logger.exception("Error running job %s", str(j))
             exceptions[j] = e
