@@ -42,10 +42,15 @@ SCANDIRS = [e.strip() for e in config[THISCONF]['scandirs'].split(':')]
 
 DBFILE = config[THISCONF]['dbfile']
 
-logger.debug('Opening sample database {0}'.format(DBFILE))
 
-db_connection = sqlite3.connect(DBFILE)
-db_connection.execute("PRAGMA foreign_keys = ON")
+
+if __name__ != "__main__":
+    logger.debug('Opening sample database {0}'.format(DBFILE))
+
+    db_connection = sqlite3.connect(DBFILE)
+    db_connection.execute("PRAGMA foreign_keys = ON")
+else:
+    db_connection = None
 
 
 
@@ -213,7 +218,7 @@ def build_sample_index(regexes, method, db_connection):
     for samplekey in samples_readfiles:
         # add sample
         try:
-            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, '%s')" % method, samplekey)
+            db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)", (samplekey[0], samplekey[1], method))
         except sqlite3.IntegrityError:
             # if we failed, we try again with an alias as AnimalName
             animalname = animalname_from_alias(samplekey[0], db_connection=db_connection)
@@ -222,7 +227,8 @@ def build_sample_index(regexes, method, db_connection):
                 logger.warning("Animal name or alias \"%s\" not in database" % samplekey[0])
                 continue
 
-            db_cursor.execute("INSERT INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, '%s')" % method, (animalname, samplekey[1]))
+            #logger.debug(     "INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES ('%s', %s, '%s')", animalname, samplekey[1], method)
+            #db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)",         (animalname, samplekey[1], method))
 
         lastrowid = db_cursor.lastrowid
 
@@ -271,7 +277,8 @@ CREATE TABLE IF NOT EXISTS Samples (
         NOT NULL,
     Severity Integer
         CHECK(Severity BETWEEN 0 AND 3),
-    FOREIGN KEY(AnimalName) REFERENCES Animals(AnimalName)
+    FOREIGN KEY(AnimalName) REFERENCES Animals(AnimalName) -- ,
+    -- UNIQUE (AnimalName, Timepoint)
 );
 
 CREATE TABLE IF NOT EXISTS ReadFiles (
@@ -366,8 +373,6 @@ def main_list_readfiles(args, parser):
 if __name__ == "__main__":
     import argparse
 
-
-
     # ========================= Main argument parser ==========================
 
 
@@ -450,7 +455,11 @@ if __name__ == "__main__":
 
     if args.db_file:
         db_connection = sqlite3.connect(args.db_file)
+    else:
+        db_connection = sqlite3.connect(config[THISCONF]['dbfile'])
         db_connection.execute("PRAGMA foreign_keys = ON")
+
+    db_connection.execute("PRAGMA foreign_keys = ON")
 
 
     if args.main_action == None:
