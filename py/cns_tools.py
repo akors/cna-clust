@@ -1,6 +1,6 @@
 #!/usr/local/bin/python3
 
-
+import imp
 import logging, configparser
 
 import os, sys, tempfile
@@ -38,7 +38,34 @@ def reload_config():
         config.read(cfg_filepath)
 
 
+module_psutil = None
+try:
+    import psutil
+    module_psutil = psutil
+    logger.debug("Found module psutil")
+except ImportError:
+    logger.info("No module psutil found. Will not be using process management features.")
+
+
+def ionice(pid, ioclass=psutil.IOPRIO_CLASS_IDLE):
+    # if we don't have psutil, we don't have business.
+    if not module_psutil:
+        return
+
+
+    try:
+        process = psutil.Process(pid)
+        process.ionice(ioclass)
+    except psutil.NoSuchProcess:
+        # We don't care if the process is gone
+        pass
+    except Exception as e:
+        logger.warning("Failed to set process I/O priority")
+
 # ============================= Class definitions =============================
+
+class ToolError(Exception):
+    pass
 
 class Bowtie2Config(running.CommandLineConfig):
     def __init__(self):
@@ -168,6 +195,8 @@ class samtools_sortsam(running.Tool):
             stdout=subprocess.PIPE, stderr=__view_stderr_file, close_fds=True,
         )
 
+        # try to not kill the system when reading the input file
+        ionice(__view_process.pid)
 
         logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
             self.get_displayname(), self.executable.get_execute_line(*sort_args), working_dir)
@@ -184,8 +213,29 @@ class samtools_sortsam(running.Tool):
 
         __view_process.stdout.close()
 
+        # if we had an error, we want to kill the sort process as well
+        if __view_process.returncode:
+            __sort_process.kill()
+
+
         __sort_process.wait()
         logger.debug("samtools sort process %d returned.", __sort_process.pid)
+
+
+        # check return codes for the commands and throw an exception if something went wrong
+        if __view_process.returncode != 0:
+            with open(view_stderrfname, "rt") as __view_stderr_file:
+                stderr = __view_stderr_file.read()
+
+            raise ToolError("Tool terminated with nonzero return code {:d} and STDERR `{:s}`".format(
+                __view_process.returncode, stderr))
+        elif __sort_process.returncode != 0:
+            with open(sort_stderrfname, "rt") as __sort_stderr_file:
+                stderr = __sort_stderr_file.read()
+
+            raise ToolError("Tool terminated with nonzero return code {:d} and STDERR `{:s}`".format(
+                __sort_process.returncode, stderr))
+
 
         return os.path.join(working_dir, os.path.basename(bam_outfile + '.bam'))
 
@@ -222,7 +272,31 @@ class Bowtie2Job(running.Job):
         return "Bowtie2 create alignment {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
 
 
+class samtools_sortsamJob(running.Job):
+    def __init__(self, working_dir, sam_infile, bam_outfile):
+        self.tool = samtools_sortsam()
 
+        self.working_dir = working_dir
+        self.sam_infile = sam_infile
+        self.bam_outfile = bam_outfile
+
+    def set_config(self, config):
+        self.tool.config = config
+
+    def __call__(self):
+        self.start()
+
+        #logger.debug("Would run %s", self)
+        self.tool.run(
+            self.working_dir,
+            self.sam_infile,
+            self.bam_outfile
+        )
+
+        self.end()
+
+    def __str__(self):
+        return "samtools convert to binary and sort {0}".format(os.path.join(self.working_dir, os.path.basename(self.bam_outfile)))
 
 
 
@@ -268,6 +342,36 @@ if __name__ == "__main__":
 
         running.run_jobs(jobs, num_threads=1)
 
+    def main_sortsam_atypical(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get output directory
+        if args.output_dir == None:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        jobs = list()
+        samples = list()
+
+        ## add all illumina samples with atypical bse
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
+        samples.extend(db_cursor)
+
+        # add atypical controls
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            jobs.append(samtools_sortsamJob(
+                working_dir=os.path.join(output_dir, samplename),
+                sam_infile=samplename+".sam",
+                bam_outfile=samplename+".sorted.bam"))
+
+        running.run_jobs(jobs, num_threads=1)
 
     # ========================= Main argument parser ==========================
 
@@ -288,7 +392,7 @@ if __name__ == "__main__":
     subparsers = parser_top.add_subparsers(title='Actions', description='Available batch operations', dest='main_action')
 
 
-    # ========================= index-reads argument parser ==========================
+    # ========================= align-atypical argument parser ==========================
 
     parser_align_atypical = subparsers.add_parser('align-atypical', help='Align readfiles for atypical samples')
 
@@ -296,6 +400,17 @@ if __name__ == "__main__":
                       type=str, dest='output_dir',
                       metavar='OUTPUT_DIRECTORY',
                       help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
+
+
+    # ========================= align-atypical argument parser ==========================
+
+    parser_sortsam_atypical = subparsers.add_parser('sortsam-atypical', help='Sort aligned SAM files for atypical samples')
+
+    parser_sortsam_atypical.add_argument('-o', '--output_directory', action="store",
+                      type=str, dest='output_dir',
+                      metavar='OUTPUT_DIRECTORY',
+                      help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
+
 
 
     args = parser_top.parse_args()
@@ -323,6 +438,8 @@ if __name__ == "__main__":
         parser_top.error('No action selected')
     elif args.main_action == 'align-atypical':
         main_align_atypical(args, parser_align_atypical)
+    elif args.main_action == 'sortsam-atypical':
+        main_sortsam_atypical(args, parser_sortsam_atypical)
 
 
 
