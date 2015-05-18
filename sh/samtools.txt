@@ -1,0 +1,2 @@
+sed -e 's/\(.*\)\.sam$/\1/' redo-sort.txt | xargs -P16 -n1 -I{} sh -c 'samtools view -b -o - -S "{}.sam" |  samtools sort -m 53687091200 -  "{}.sorted" ;'
+sed -e 's/\(.*\)\.sam$/\1/' redo-sort.txt | xargs -P16 -n1 -I{} sh -c 'samtools index "{}.sorted.bam" ;'
