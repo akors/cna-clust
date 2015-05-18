@@ -11,6 +11,7 @@ import time
 import distutils
 
 import subprocess
+import concurrent.futures
 
 
 # =============================== Set up logging ==============================
@@ -143,6 +144,7 @@ class Tool(object):
 
         return __process.returncode, stdoutfname, stderrfname
 
+
     def run_with_config(self, working_dir, *args, config=None):
         if config is None:
             config = self.config
@@ -175,27 +177,48 @@ class Job(object):
         return self.time
 
 
+def run_one_job(one_job):
+    try:
+        r = one_job()
+
+        if (one_job.time):
+            logger.info("Job `{0:s}` ran {1:.0f} seconds".format(str(one_job), one_job.time))
+
+    except Exception as e:
+        logger.exception("Error running job %s", str(one_job))
+        return e
+
+    return r
 
 def run_jobs(jobs, num_threads=1):
-    num_threads=1 # we don't know parallelism for now
 
     result     = dict()
     exceptions = dict()
 
     logger.info("Running %d jobs on %d threads.", len(jobs), num_threads)
 
-    for j in jobs:
-        try:
-            result[j] = j()
 
-            if (j.time):
-                logger.info("Job `{0:s}` ran {1:.0f} seconds".format(str(j), j.time))
+
+
+    # process jobs in a thread pool
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+
+        # create a future for each job and map jobs to futures in a dictionary
+        future_to_job = {executor.submit(run_one_job, job) : job for job in jobs}
+
+        # pull single finished jobs and store then in the results. report how many are completed
+        for future in concurrent.futures.as_completed(future_to_job):
+
+            j = future_to_job[future]
+            r = future.result()
+
+            if isinstance(r, Exception):
+                exceptions[j] = r
+            else:
+                result[j]     = r
 
             logger.info("Completed %d of %d jobs.", len(result)+len(exceptions), len(jobs))
 
-        except Exception as e:
-            logger.exception("Error running job %s", str(j))
-            exceptions[j] = e
 
     return result, exceptions
 

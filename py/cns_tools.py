@@ -123,9 +123,67 @@ class Bowtie2(running.Tool):
         logger.debug('Process %s terminated with return code %d. stdout: %s, stderr: %s', str(self.executable) ,retcode, stdoutfname, stderrfname)
 
 
+class cufflinksConfig(running.CommandLineConfig):
+    def __init__(self):
+        super().__init__()
+
+        self.boolopts = {
+            "--quiet" : True # quiet and log-friendly output
+        }
+
+class cufflinks(running.Tool):
+    name        = 'cufflinks'
+    displayname = "cuffdidff"
+
+
+    def __init__(self):
+        super().__init__(running.BinaryExecutable("cufflinks"))
+        self.config      = cufflinksConfig()
+
+    def get_name(self):
+        return cufflinks.name
+
+    def get_displayname(self):
+        return cufflinks.displayname
+
+    def run(self, working_dir, bam_infile):
+        args = []
+
+        args.append(bam_infile)
+
+        retcode, stdoutfname, stderrfname = super().run(working_dir, *self.config.tokens(*args))
+        logger.debug('Process %s terminated with return code %d. stdout: %s, stderr: %s', str(self.executable) ,retcode, stdoutfname, stderrfname)
+
+
+class cufflinksJob(running.Job):
+    def __init__(self, working_dir, bam_infile):
+        self.tool = cufflinks()
+
+        self.working_dir = working_dir
+        self.bam_infile = bam_infile
+
+    def set_config(self, config):
+        self.tool.config = config
+
+    def __call__(self):
+        self.start()
+
+        #logger.info("Would run %s", self)
+        self.tool.run(
+            self.working_dir,
+            self.bam_infile
+        )
+
+        self.end()
+
+
+    def __str__(self):
+        return "cufflinks assemble {0}".format(os.path.join(self.working_dir, self.bam_infile))
 
 class samtools_viewConfig(running.CommandLineConfig):
     def __init__(self):
+        super().__init__()
+
         self.boolopts = {
             "-b" : True, # Output binary
             "-u" : True, # Uncompressed output, since we just pipe everything out
@@ -138,6 +196,8 @@ class samtools_viewConfig(running.CommandLineConfig):
 
 class samtools_sortConfig(running.CommandLineConfig):
     def __init__(self):
+        super().__init__()
+
         self.boolopts = {
         }
 
@@ -269,7 +329,7 @@ class Bowtie2Job(running.Job):
         self.end()
 
     def __str__(self):
-        return "Bowtie2 create alignment {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
+        return "Bowtie2 create alignment to {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
 
 
 class samtools_sortsamJob(running.Job):
@@ -301,6 +361,7 @@ class samtools_sortsamJob(running.Job):
 
 
 
+
 # ============================ Script entry point =============================
 
 if __name__ == "__main__":
@@ -315,6 +376,11 @@ if __name__ == "__main__":
             output_dir = os.getcwd()
         else:
             output_dir = args.output_dir
+
+        if args.num_threads == None:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
 
         jobs = list()
         samples = list()
@@ -334,11 +400,16 @@ if __name__ == "__main__":
             db_cursor.execute('SELECT FilePath from ReadFiles NATURAL JOIN Samples WHERE AnimalName=? AND TimePoint=?', (sample[0], sample[1]))
             readfiles = [row[0] for row in db_cursor]
 
-            jobs.append(Bowtie2Job(
+            j = Bowtie2Job(
                 working_dir=os.path.join(output_dir, samplename),
                 seq_infiles=readfiles,
                 sam_outfile=samplename+".sam",
-                unal_outfile=(samplename+".unal.fastq")))
+                unal_outfile=(samplename+".unal.fastq"))
+
+            # set paralell processing settings
+            j.tool.config.valopts["--threads"] = num_threads
+
+            jobs.append(j)
 
         running.run_jobs(jobs, num_threads=1)
 
@@ -351,6 +422,12 @@ if __name__ == "__main__":
             output_dir = os.getcwd()
         else:
             output_dir = args.output_dir
+
+
+        if args.num_threads == None:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
 
         jobs = list()
         samples = list()
@@ -371,7 +448,59 @@ if __name__ == "__main__":
                 sam_infile=samplename+".sam",
                 bam_outfile=samplename+".sorted.bam"))
 
-        running.run_jobs(jobs, num_threads=1)
+        running.run_jobs(jobs, num_threads=num_threads)
+
+
+    def main_assemble_atypical(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get output directory
+        if args.output_dir == None:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        # get input directory
+        if args.input_dir == None:
+            input_dir = config.get(THISCONF, 'aligndir', fallback=os.getcwd())
+        else:
+            input_dir = args.input_dir
+
+
+        if args.num_threads == None:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
+
+
+        # cufflinks is "aware" of multiple threads, but utilizes only a portion of them.
+        per_cufflink_threads = 8
+
+        jobs = list()
+        samples = list()
+
+        ## add all illumina samples with atypical bse
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
+        samples.extend(db_cursor)
+
+        # add atypical controls
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            j = cufflinksJob(working_dir=os.path.join(output_dir, samplename),
+                bam_infile=os.path.join(input_dir, samplename, samplename+".sorted.bam"))
+
+            # Use at most per_cufflink_threads threads for one job
+            j.tool.config.valopts["--num-threads"] = min(num_threads, per_cufflink_threads)
+
+            jobs.append(j)
+
+        running.run_jobs(jobs, num_threads=int(num_threads/per_cufflink_threads))
+
 
     # ========================= Main argument parser ==========================
 
@@ -401,6 +530,11 @@ if __name__ == "__main__":
                       metavar='OUTPUT_DIRECTORY',
                       help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
 
+    parser_align_atypical.add_argument('-p', '--threads', action="store",
+                      type=int, dest='num_threads',
+                      metavar='NUM_THREADS',
+                      help='Use NUM_THREADS processors simultanously')
+
 
     # ========================= align-atypical argument parser ==========================
 
@@ -411,6 +545,30 @@ if __name__ == "__main__":
                       metavar='OUTPUT_DIRECTORY',
                       help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
 
+    parser_sortsam_atypical.add_argument('-p', '--threads', action="store",
+                      type=int, dest='num_threads',
+                      metavar='NUM_THREADS',
+                      help='Use NUM_THREADS processors simultanously')
+
+
+    # ========================= assemble-atypical argument parser ==========================
+
+    parser_assemble_atypical = subparsers.add_parser('assemble-atypical', help='Assemble aligned&sorted BAM read files for atypical samples')
+
+    parser_assemble_atypical.add_argument('-i', '--input_directory', action="store",
+                      type=str, dest='input_dir',
+                      metavar='INPUT_DIRECTORY',
+                      help='Load aligned files from INPUT_DIRECTORY. Default is the current working directory.')
+
+    parser_assemble_atypical.add_argument('-o', '--output_directory', action="store",
+                      type=str, dest='output_dir',
+                      metavar='OUTPUT_DIRECTORY',
+                      help='Write output to OUTPUT_DIRECTORY. Default is current working directory.')
+
+    parser_assemble_atypical.add_argument('-p', '--threads', action="store",
+                      type=int, dest='num_threads',
+                      metavar='NUM_THREADS',
+                      help='Use NUM_THREADS processors simultanously')
 
 
     args = parser_top.parse_args()
@@ -440,7 +598,8 @@ if __name__ == "__main__":
         main_align_atypical(args, parser_align_atypical)
     elif args.main_action == 'sortsam-atypical':
         main_sortsam_atypical(args, parser_sortsam_atypical)
-
+    elif args.main_action == 'assemble-atypical':
+        main_assemble_atypical(args, parser_assemble_atypical)
 
 
 
