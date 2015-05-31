@@ -45,6 +45,7 @@ def add_pids(pids):
 def remove_pids(pids):
     for p in pids:
         silentremove(os.path.join(PID_DIR, str(p)))
+    
 
 def refresh_pids():
     if not os.path.isdir(PID_DIR):
@@ -109,7 +110,11 @@ def main_add(args, parser):
     add_pids(args.pids)
 
 def main_remove(args, parser):
-    remove_pids(args.pids)
+    pids = args.pids
+    if not pids:
+        pids = get_pids()
+        
+    remove_pids(pids)
 
 def main_status(args, parser):
     Ps = [psutil.Process(p) for p in get_pids()]
