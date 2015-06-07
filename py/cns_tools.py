@@ -359,7 +359,7 @@ class samtools_sortsamJob(running.Job):
         self.end()
 
     def __str__(self):
-        return "samtools convert to binary and sort {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_infile)))
+        return "samtools convert to binary and sort {0}".format(self.sam_infile)
 
 
 def has_cufflinks_result(directory):
@@ -436,6 +436,12 @@ if __name__ == "__main__":
         global db_connection
         db_cursor = db_connection.cursor()
 
+        # get input directory
+        if args.input_dir == None:
+            input_dir = os.getcwd()
+        else:
+            input_dir = args.input_dir
+
         # get output directory
         if args.output_dir == None:
             output_dir = os.getcwd()
@@ -464,7 +470,7 @@ if __name__ == "__main__":
 
             jobs.append(samtools_sortsamJob(
                 working_dir=os.path.join(output_dir, samplename),
-                sam_infile=samplename+".sam",
+                sam_infile=os.path.join(input_dir, samplename, samplename+".sam"),
                 bam_outfile=samplename+".sorted.bam"))
 
         running.run_jobs(jobs, num_threads=num_threads)
@@ -566,10 +572,15 @@ if __name__ == "__main__":
 
     parser_sortsam_atypical = subparsers.add_parser('sortsam-atypical', help='Sort aligned SAM files for atypical samples')
 
+    parser_sortsam_atypical.add_argument('-i', '--input_directory', action="store",
+                      type=str, dest='input_dir',
+                      metavar='INPUT_DIRECTORY',
+                      help='Read files from INPUT_DIRECTORY. Default is current working directory.')
+
     parser_sortsam_atypical.add_argument('-o', '--output_directory', action="store",
                       type=str, dest='output_dir',
                       metavar='OUTPUT_DIRECTORY',
-                      help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
+                      help='Write files to OUTPUT_DIRECTORY. Default is current working directory.')
 
     parser_sortsam_atypical.add_argument('-p', '--threads', action="store",
                       type=int, dest='num_threads',
