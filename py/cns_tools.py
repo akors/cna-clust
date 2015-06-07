@@ -1,5 +1,7 @@
 #!/usr/local/bin/python3
 
+# (C) 2015, Alexander Korsunsky
+
 import imp
 import logging, configparser
 
@@ -186,7 +188,8 @@ class samtools_viewConfig(running.CommandLineConfig):
 
         self.boolopts = {
             "-b" : True, # Output binary
-            "-u" : True, # Uncompressed output, since we just pipe everything out
+            # ouch! this lets us crash. Compress, if you really want.
+            # "-u" : True, # Uncompressed output, since we just pipe everything out
             "-S" : True, # Input is a text SAM file
         }
 
@@ -356,7 +359,7 @@ class samtools_sortsamJob(running.Job):
         self.end()
 
     def __str__(self):
-        return "samtools convert to binary and sort {0}".format(os.path.join(self.working_dir, os.path.basename(self.bam_outfile)))
+        return "samtools convert to binary and sort {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_infile)))
 
 
 def has_cufflinks_result(directory):
@@ -614,6 +617,8 @@ if __name__ == "__main__":
         db_connection.execute("PRAGMA foreign_keys = ON")
     else:
         db_connection = samples_db.db_connection
+
+    print("Hello. My PID is: %d" % os.getpid())
 
     if args.main_action == None:
         parser_top.error('No action selected')
