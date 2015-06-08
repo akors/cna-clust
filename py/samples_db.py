@@ -88,7 +88,7 @@ def scan_reads(directory):
 
             # FASTA files nucleotides
             match = pat_fasta.match(filename)
-            if pat_fasta.match(filename):
+            if match:
                 # logger.debug('matched file {0} as FASTA/QUAL'.format(os.path.join(dirpath, filename)))
 
                 if os.path.isfile(os.path.join(dirpath, match.group(1) + '.qual')):

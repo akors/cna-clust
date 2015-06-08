@@ -133,7 +133,7 @@ class cufflinksConfig(running.CommandLineConfig):
 
 class cufflinks(running.Tool):
     name        = 'cufflinks'
-    displayname = "cuffdidff"
+    displayname = "cufflinks"
 
 
     def __init__(self):
@@ -359,6 +359,21 @@ class samtools_sortsamJob(running.Job):
         return "samtools convert to binary and sort {0}".format(os.path.join(self.working_dir, os.path.basename(self.bam_outfile)))
 
 
+def has_cufflinks_result(directory):
+    cufflinks_required = [
+        "genes.fpkm_tracking",
+        "isoforms.fpkm_tracking",
+        "skipped.gtf",
+        "transcripts.gtf",
+    ]
+
+    for f in cufflinks_required:
+        if not os.path.isfile(os.path.join(directory, f)):
+            return False
+    else:
+        return True
+
+
 
 
 
@@ -366,6 +381,7 @@ class samtools_sortsamJob(running.Job):
 
 if __name__ == "__main__":
     import argparse
+
 
     def main_align_atypical(args, parser):
         global db_connection
@@ -491,7 +507,14 @@ if __name__ == "__main__":
         for sample in samples:
             samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
 
-            j = cufflinksJob(working_dir=os.path.join(output_dir, samplename),
+            wd = os.path.join(output_dir, samplename)
+
+            if has_cufflinks_result(wd):
+                logger.warning("It seems that cufflinks has already been run with the directory `%s`. Skipping.",
+                wd)
+                continue
+
+            j = cufflinksJob(working_dir=wd,
                 bam_infile=os.path.join(input_dir, samplename, samplename+".sorted.bam"))
 
             # Use at most per_cufflink_threads threads for one job
