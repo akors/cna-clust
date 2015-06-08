@@ -69,6 +69,10 @@ def ionice(pid, ioclass=psutil.IOPRIO_CLASS_IDLE):
 class ToolError(Exception):
     pass
 
+
+
+# ============================= Bowtie2 classes =============================
+
 class Bowtie2Config(running.CommandLineConfig):
     def __init__(self):
         self.boolopts = {
@@ -123,6 +127,56 @@ class Bowtie2(running.Tool):
 
         retcode, stdoutfname, stderrfname = super().run(working_dir, *self.config.tokens(*args))
         logger.debug('Process %s terminated with return code %d. stdout: %s, stderr: %s', str(self.executable) ,retcode, stdoutfname, stderrfname)
+
+
+
+class Bowtie2Job(running.Job):
+    def __init__(self, working_dir, seq_infiles, sam_outfile, unal_outfile=None, read_format='fastq'):
+        self.tool = Bowtie2()
+
+        self.working_dir = working_dir
+        self.seq_infiles = seq_infiles
+        self.sam_outfile = sam_outfile
+        self.unal_outfile = unal_outfile
+        self.read_format = read_format
+
+    def set_config(self, config):
+        self.tool.config = config
+
+    def __call__(self):
+        self.start()
+
+        #logger.info("Would run %s", self)
+        self.tool.run(
+            self.working_dir,
+            self.seq_infiles,
+            self.sam_outfile,
+            self.unal_outfile,
+            self.read_format
+        )
+
+        self.end()
+
+    def __str__(self):
+        return "Bowtie2 create alignment to {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
+
+
+# ============================= cufflinks classes =============================
+
+
+def has_cufflinks_result(directory):
+    cufflinks_required = [
+        "genes.fpkm_tracking",
+        "isoforms.fpkm_tracking",
+        "skipped.gtf",
+        "transcripts.gtf",
+    ]
+
+    for f in cufflinks_required:
+        if not os.path.isfile(os.path.join(directory, f)):
+            return False
+    else:
+        return True
 
 
 class cufflinksConfig(running.CommandLineConfig):
@@ -182,6 +236,9 @@ class cufflinksJob(running.Job):
     def __str__(self):
         return "cufflinks assemble {0}".format(os.path.join(self.working_dir, self.bam_infile))
 
+
+# ============================= samtools classes =============================
+
 class samtools_viewConfig(running.CommandLineConfig):
     def __init__(self):
         super().__init__()
@@ -196,6 +253,8 @@ class samtools_viewConfig(running.CommandLineConfig):
         self.valopts = {
             "-o"        : "-" # output is stdout
         }
+
+
 
 class samtools_sortConfig(running.CommandLineConfig):
     def __init__(self):
@@ -304,37 +363,6 @@ class samtools_sortsam(running.Tool):
 
 
 
-class Bowtie2Job(running.Job):
-    def __init__(self, working_dir, seq_infiles, sam_outfile, unal_outfile=None, read_format='fastq'):
-        self.tool = Bowtie2()
-
-        self.working_dir = working_dir
-        self.seq_infiles = seq_infiles
-        self.sam_outfile = sam_outfile
-        self.unal_outfile = unal_outfile
-        self.read_format = read_format
-
-    def set_config(self, config):
-        self.tool.config = config
-
-    def __call__(self):
-        self.start()
-
-        #logger.info("Would run %s", self)
-        self.tool.run(
-            self.working_dir,
-            self.seq_infiles,
-            self.sam_outfile,
-            self.unal_outfile,
-            self.read_format
-        )
-
-        self.end()
-
-    def __str__(self):
-        return "Bowtie2 create alignment to {0}".format(os.path.join(self.working_dir, os.path.basename(self.sam_outfile)))
-
-
 class samtools_sortsamJob(running.Job):
     def __init__(self, working_dir, sam_infile, bam_outfile):
         self.tool = samtools_sortsam()
@@ -362,19 +390,7 @@ class samtools_sortsamJob(running.Job):
         return "samtools convert to binary and sort {0}".format(self.sam_infile)
 
 
-def has_cufflinks_result(directory):
-    cufflinks_required = [
-        "genes.fpkm_tracking",
-        "isoforms.fpkm_tracking",
-        "skipped.gtf",
-        "transcripts.gtf",
-    ]
 
-    for f in cufflinks_required:
-        if not os.path.isfile(os.path.join(directory, f)):
-            return False
-    else:
-        return True
 
 
 
@@ -385,7 +401,7 @@ def has_cufflinks_result(directory):
 if __name__ == "__main__":
     import argparse
 
-
+    # ============================ align-atypical =============================
     def main_align_atypical(args, parser):
         global db_connection
         db_cursor = db_connection.cursor()
@@ -432,6 +448,7 @@ if __name__ == "__main__":
 
         running.run_jobs(jobs, num_threads=1)
 
+    # ============================ sortsam-atypical =============================
     def main_sortsam_atypical(args, parser):
         global db_connection
         db_cursor = db_connection.cursor()
@@ -476,6 +493,7 @@ if __name__ == "__main__":
         running.run_jobs(jobs, num_threads=num_threads)
 
 
+    # ============================ assemble-atypical =============================
     def main_assemble_atypical(args, parser):
         global db_connection
         db_cursor = db_connection.cursor()
