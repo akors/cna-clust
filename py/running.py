@@ -129,8 +129,10 @@ class Tool(object):
         if not os.path.isdir(working_dir):
             os.makedirs(working_dir)
 
-        __stdout_file, stdoutfname = tempfile.mkstemp(prefix='stdout_', suffix='.txt', dir=working_dir)
-        __stderr_file, stderrfname = tempfile.mkstemp(prefix='stderr_', suffix='.txt', dir=working_dir)
+        __stdout_file, stdoutfname = tempfile.mkstemp(prefix='stdout-' +
+                self.get_name() + '_', suffix='.txt', dir=working_dir)
+        __stderr_file, stderrfname = tempfile.mkstemp(prefix='stderr-' +
+                self.get_name() + '_', suffix='.txt', dir=working_dir)
 
         logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
                   self.get_displayname(), self.executable.get_execute_line(*args), working_dir)
