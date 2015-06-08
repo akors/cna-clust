@@ -3,8 +3,9 @@
 
 import sys, io
 import logging, configparser
-import pickle
 
+
+import time
 import re
 import numpy as np
 
@@ -88,7 +89,7 @@ def parse_transcripts_cuffcmp_tracking(sampe_transcripts):
     trascript_grouplist = [t.split("|") for t in ts.split(",")]
 
     return [
-        (g[0], g[1], float(g[2]), float(g[3]), float(g[4]), float(g[5]), float(g[6]))
+        (g[0], g[1], float(g[2]), float(g[3]), float(g[4]), float(g[5]), float(g[6]))#, int(g[7])
         for g in trascript_grouplist
     ]
 
@@ -97,21 +98,27 @@ def parse_transcripts_cuffcmp_tracking(sampe_transcripts):
 def binmatrix_from_cuffcmp_tracking(filename):
     r, c = get_shape(filename)
 
+    # tick
     starttime = time.time()
-    mat = np.zeros([r, c-4], dtype=bool)
 
-    locus_vector = [None for k in range(1,r+1)]
+    # preallocate
+    filedata = np.zeros([r, c], dtype=np.object)
 
-    i = 0
-    for loc in lineit_cuffcmp_tracking(filename): 
-        mat[i] = loc[4:]
-        locus_vector[i] = loc[0]
+    # do reading
+    for i, loc in enumerate(lineit_cuffcmp_tracking(filename)):
+        filedata[i,:] = loc
 
-        i += 1
+    # extract binary matrix
+    binmatrix = np.array(filedata[:,4:], dtype=np.bool)
 
-    logger.debug("Writing binary matrix took %.3f s", time.time() - starttime)
+    # extract location name vectory
+    location_vector = list(filedata[:,0])
 
-    return mat, locus_vector
+
+    # tock
+    logger.debug("Creating binary matrix took %.3f s", time.time() - starttime)
+
+    return binmatrix, location_vector
 
 
 if __name__ == "__main__":
@@ -119,13 +126,9 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=LOGDEFAULT, format='%(levelname)1s:%(message)s')
 
-    for a in sys.argv[1:]:
-        #d = [datapoint for datapoint in lineit_cuffcmp_tracking(a)]
-        # d = read_cuffcmp_tracking(a)
-        d = binmatrix_from_cuffcmp_tracking(a)
+    for arg in sys.argv[1:]:
+        matrix, rownames = binmatrix_from_cuffcmp_tracking(arg)
 
         starttime = time.time()
-        with open(a + '.pickle', 'wb') as picklefile:
-            pickle.dump(d, picklefile)
-
-        logger.debug("Pickling took %.3f s", time.time() - starttime)
+        np.save(arg+".binmatrix", matrix)
+        logger.debug("Saving uncompressed took %.3f s", time.time() - starttime)
