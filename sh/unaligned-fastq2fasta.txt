@@ -1,0 +1,1 @@
+find . -name '*unal.fastq' -printf '%p\n' | sed -e 's%^.*/\(.*\)/.*\.unal\.fastq%\1%' | xargs -P4 -n1 -I{} sh -c 'echo "Conveting {} ..." ; seqtk fq2fa {}/{}.unal.fastq > {}/{}.unal.fasta ; echo "Done converting {}" '

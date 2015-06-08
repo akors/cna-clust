@@ -1,0 +1,2 @@
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/Bos_taurus/GFF/alt_Btau_4.6.1_top_level.gff3.gz
+gunzip alt_Btau_4.6.1_top_level.gff3.gz
