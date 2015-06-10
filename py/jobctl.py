@@ -1,5 +1,7 @@
 #!/usr/local/bin/python3
 
+# (C) 2015, Alexander Korsunsky
+
 import logging
 
 import os
@@ -45,7 +47,7 @@ def add_pids(pids):
 def remove_pids(pids):
     for p in pids:
         silentremove(os.path.join(PID_DIR, str(p)))
-    
+
 
 def refresh_pids():
     if not os.path.isdir(PID_DIR):
@@ -64,7 +66,7 @@ def refresh_pids():
                     p)
             rmlist.append(p)
             continue
-                
+
         P = psutil.Process(p)
         puid = P.uids()[0]
         if puid != os.getuid() and puid != 0:
@@ -72,7 +74,7 @@ def refresh_pids():
                     "Removing from managed processes list.", p)
             rmlist.append(p)
             continue
-    
+
     remove_pids(rmlist)
 
 
@@ -113,7 +115,7 @@ def main_remove(args, parser):
     pids = args.pids
     if not pids:
         pids = get_pids()
-        
+
     remove_pids(pids)
 
 def main_status(args, parser):
@@ -153,8 +155,8 @@ if __name__ == "__main__":
                       help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
 
 
-    subparsers = parser_top.add_subparsers(title='Actions', description='Process management actions', dest='main_action')    
-    
+    subparsers = parser_top.add_subparsers(title='Actions', description='Process management actions', dest='main_action')
+
 
     parser_add = subparsers.add_parser('add', help='Add processes to the managed process lists')
     parser_add.add_argument(metavar='PID', nargs='+', type=int, dest='pids', help='PIDs that should be added to the managed process list')
@@ -170,10 +172,10 @@ if __name__ == "__main__":
 
     parser_stop = subparsers.add_parser('stop', help='Stop processes. If no PID\'s are specified, stops all managed processes.')
     parser_stop.add_argument(metavar='PID', nargs='*', type=int, dest='pids', help='PIDs that should be stopped')
-    
-    
-    
-    
+
+
+
+
     args = parser_top.parse_args()
 
     if args.log_level in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
@@ -184,11 +186,11 @@ if __name__ == "__main__":
     else:
         print("Unknown logging level {0}. Using {1}.".format(args.log_level, logging.getLevelName(LOGDEFAULT)))
         log_level = LOGDEFAULT
-        
-        
+
+
     logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
-    
-    
+
+
     if args.main_action == None:
         parser_top.error('No action selected')
     elif args.main_action == 'add':
@@ -201,6 +203,6 @@ if __name__ == "__main__":
         main_resume(args, parser_resume)
     elif args.main_action == 'stop':
         main_stop(args, parser_stop)
-        
-        
-        
+
+
+
