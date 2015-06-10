@@ -5,7 +5,7 @@
 import logging
 
 import os
-import psutil, signal
+import psutil, signal, errno
 
 PID_DIR=os.path.join(os.path.expanduser('~'), '.local', 'share', 'jobctl-py')
 #PID_DIR=os.path.join('/export/home/akorsuns/', '.local', 'share', 'jobctl-py')
@@ -37,8 +37,9 @@ def add_pids(pids):
         logger.debug("PID %d has UID %d, current UID is %d", p, puid,
                 os.getuid())
 
-        if puid != os.getuid() and puid != 0:
-            logger.warning("Trying to add PID %d although it is owned by another                     user and you are not root.", p)
+        if puid != os.getuid() and os.getuid() != 0:
+            logger.warning("Trying to add PID %d although it is owned by another"
+                " user and you are not root.", p)
             continue
 
         open(os.path.join(PID_DIR, str(p)), 'a').close()
