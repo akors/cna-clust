@@ -224,7 +224,7 @@ class cufflinksJob(running.Job):
     def __call__(self):
         self.start()
 
-        #logger.info("Would run %s", self)
+        # logger.info("Would run %s", self)
         self.tool.run(
             self.working_dir,
             self.bam_infile
@@ -516,9 +516,13 @@ if __name__ == "__main__":
         else:
             num_threads = args.num_threads
 
+        annotation_file = None
+        if args.annotation_file:
+            annotation_file = args.annotation_file
 
-        # cufflinks is "aware" of multiple threads, but utilizes only a portion of them.
-        per_cufflink_threads = 8
+
+        ## cufflinks is "aware" of multiple threads, but utilizes only a portion of them.
+        #per_cufflink_threads = 8
 
         jobs = list()
         samples = list()
@@ -545,11 +549,14 @@ if __name__ == "__main__":
                 bam_infile=os.path.join(input_dir, samplename, samplename+".sorted.bam"))
 
             # Use at most per_cufflink_threads threads for one job
-            j.tool.config.valopts["--num-threads"] = min(num_threads, per_cufflink_threads)
+            j.tool.config.valopts["--num-threads"] = num_threads
+
+            if annotation_file:
+                j.tool.config.valopts["--GTF-guide"] = annotation_file
 
             jobs.append(j)
 
-        running.run_jobs(jobs, num_threads=int(num_threads/per_cufflink_threads))
+        running.run_jobs(jobs, num_threads=1)
 
 
     # ========================= Main argument parser ==========================
@@ -619,6 +626,13 @@ if __name__ == "__main__":
                       type=str, dest='output_dir',
                       metavar='OUTPUT_DIRECTORY',
                       help='Write output to OUTPUT_DIRECTORY. Default is current working directory.')
+
+    parser_assemble_atypical.add_argument('--annotation-file', action="store",
+                      type=str, dest='annotation_file', nargs='?', 
+                      default=config.get(THISCONF, "annotation_file",
+                          fallback=None),
+                      metavar='ANNOTATION_FILE',
+                      help='Use gtf/gff annotation file as assembly guide')
 
     parser_assemble_atypical.add_argument('-p', '--threads', action="store",
                       type=int, dest='num_threads',
