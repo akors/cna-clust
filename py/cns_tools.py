@@ -224,7 +224,7 @@ class cufflinksJob(running.Job):
     def __call__(self):
         self.start()
 
-        # logger.info("Would run %s", self)
+        #logger.info("Would run %s", self)
         self.tool.run(
             self.working_dir,
             self.bam_infile
@@ -520,6 +520,10 @@ if __name__ == "__main__":
         if args.annotation_file:
             annotation_file = args.annotation_file
 
+        mask_file = None
+        if args.mask_file:
+            mask_file = args.mask_file
+
 
         ## cufflinks is "aware" of multiple threads, but utilizes only a portion of them.
         #per_cufflink_threads = 8
@@ -554,9 +558,13 @@ if __name__ == "__main__":
             if annotation_file:
                 j.tool.config.valopts["--GTF-guide"] = annotation_file
 
+            if mask_file:
+                j.tool.config.valopts["--mask-file"] = mask_file
+
             jobs.append(j)
 
         running.run_jobs(jobs, num_threads=1)
+
 
 
     # ========================= Main argument parser ==========================
@@ -628,11 +636,18 @@ if __name__ == "__main__":
                       help='Write output to OUTPUT_DIRECTORY. Default is current working directory.')
 
     parser_assemble_atypical.add_argument('--annotation-file', action="store",
-                      type=str, dest='annotation_file', nargs='?', 
+                      type=str, dest='annotation_file', nargs='?',
                       default=config.get(THISCONF, "annotation_file",
                           fallback=None),
                       metavar='ANNOTATION_FILE',
                       help='Use gtf/gff annotation file as assembly guide')
+
+
+    parser_assemble_atypical.add_argument('--mask-file', action="store",
+                      type=str, dest='mask_file', nargs='?',
+                      metavar='MASK_FILE',
+                      help='Exclude all transcripts that are found within MASK_FILE')
+
 
     parser_assemble_atypical.add_argument('-p', '--threads', action="store",
                       type=int, dest='num_threads',
