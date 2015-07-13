@@ -95,30 +95,44 @@ def parse_transcripts_cuffcmp_tracking(sampe_transcripts):
 
 
 
-def binmatrix_from_cuffcmp_tracking(filename):
-    r, c = get_shape(filename)
+def binmatrix_from_cuffcmp_tracking(filedata):
+    r = len(filedata)
+    c = len(filedata[0])
 
     # tick
     starttime = time.time()
 
-    # preallocate
-    filedata = np.zeros([r, c], dtype=np.object)
-
-    # do reading
-    for i, loc in enumerate(lineit_cuffcmp_tracking(filename)):
-        filedata[i,:] = loc
-
     # extract binary matrix
     binmatrix = np.array(filedata[:,4:], dtype=np.bool)
-
-    # extract location name vectory
-    location_vector = list(filedata[:,0])
-
 
     # tock
     logger.debug("Creating binary matrix took %.3f s", time.time() - starttime)
 
-    return binmatrix, location_vector
+    return binmatrix
+
+
+def fpkmmatrix_from_cuffcmp_tracking(filedata):
+    r = len(filedata)
+    c = len(filedata[0])
+
+    #print("r = %d, c = %d\n" % (r ,c))
+
+    # tick
+    starttime = time.time()
+
+    # extract fpkm matrix
+    mat = np.zeros([r,c-4], dtype=float)
+    for i, row in enumerate(filedata):
+        for j, col in enumerate(row[4:]):
+            if not col:
+                continue
+            fpkms = [val[3] for val in col]
+            mat[i][j] = max(fpkms)
+
+    # tock
+    logger.debug("Creating binary matrix took %.3f s", time.time() - starttime)
+
+    return mat
 
 
 if __name__ == "__main__":
@@ -127,8 +141,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=LOGDEFAULT, format='%(levelname)1s:%(message)s')
 
     for arg in sys.argv[1:]:
-        matrix, rownames = binmatrix_from_cuffcmp_tracking(arg)
+        filedata = read_cuffcmp_tracking(arg)
+        fpkmmatrix = fpkmmatrix_from_cuffcmp_tracking(filedata)
+
 
         starttime = time.time()
-        np.save(arg+".binmatrix", matrix)
+        np.save(arg+".fpkmmatrix", fpkmmatrix)
         logger.debug("Saving uncompressed took %.3f s", time.time() - starttime)
