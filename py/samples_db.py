@@ -285,7 +285,7 @@ CREATE TABLE IF NOT EXISTS ReadFiles (
     ReadFileID INTEGER PRIMARY KEY,
     SampleID INTEGER,
     FilePath TEXT UNIQUE NOT NULL,
-    FilePathQuality TEXT, 
+    FilePathQuality TEXT,
     Type TEXT
         CHECK(Type IN ('fastq', 'fastaqual'))
         NOT NULL,
@@ -300,7 +300,7 @@ def init_db(db_connection, animals_csv=None, aliases_csv=None):
     db_cursor = db_connection.cursor()
 
     if aliases_csv and not animals_csv:
-        raise AssertionError("animals_csv required if aliases_csv is provided")    
+        raise AssertionError("animals_csv required if aliases_csv is provided")
 
     if animals_csv:
         reader = csv.reader(animals_csv, delimiter=';', quotechar='"')
@@ -330,7 +330,7 @@ def main_init_db(args, parser):
 
 def main_index_samples(args, parser):
     regexes = [
-        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina 
+        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina
         re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
         re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),     # Amprolium illumina
         re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                  # Amprolium illumina
@@ -367,6 +367,78 @@ def main_list_readfiles(args, parser):
 
         for r in it_readfile(sample=(an, args.timepoint), db_connection=db_connection):
             print(r)
+
+def main_check_readfiles(args, parser):
+    db_cursor = db_connection.cursor()
+
+    file_counter = 0
+    problems_counter = 0
+
+    db_cursor.execute('SELECT FilePath, FilePathQuality, Type, SampleID FROM ReadFiles')
+    for row in db_cursor:
+        file_counter += 1
+        has_problem = False
+        if not os.path.isfile(row[0]):
+            has_problem = True
+            print("Missing read file `%s`" % row[0])
+            continue
+
+        if not row[3]:
+            print("No sample assigned to read file `%s`" % row[0])
+            has_problem = True
+
+        if row[2] == "fastaqual":
+            if not row[1]:
+                print("No quality file in database for read file `%s` with type `%s`" % (row[0], "fastaqual"))
+                has_problem = True
+            elif not os.path.isfile(row[1]):
+                    print("Missing quality file `%s` for read file `%s` with type `%s`" % (row[1], row[0], "fastaqual"))
+                    has_problem = True
+
+        elif row[2] == "fastq":
+            if row[1]:
+                print("Quality file in database found for read file `%s` with type `%s`" % (row[0], "fastq"))
+                has_problem = True
+
+        else:
+            print("Unknown read file type `%s` for read file `%s`" % (row[2], row[0]))
+            has_problem = True
+
+        problems_counter += has_problem
+
+
+        pat_fastq = re.compile('(.*)\.fastq$')
+        pat_fasta = re.compile('(.*)\.(?:fasta|fna)$')
+
+        #if "dirs" in args:
+        #    dirs = args.dirs
+        #else:
+        #    dirs = []
+
+        for directory in args.dirs:
+            # walk through directory tree
+            for dirpath, dirnames, filenames in os.walk(directory, topdown=True):
+                for filename in filenames:
+                    fullpath  = os.path.join(dirpath, filename)
+
+                    # FASTQ files with nucleotides and quality files
+                    match_fq = pat_fastq.match(filename)
+                    match_fa = pat_fastq.match(filename)
+                    if not (match_fq or match_fa):
+                        continue
+
+                    # print(type(fullpath), fullpath)
+                    db_cursor.execute("SELECT FilePath FROM ReadFiles WHERE FilePath = ? LIMIT 1", (fullpath,))
+                    if not db_cursor.fetchone():
+                        print("File not in database: `%s`" % fullpath)
+
+
+    print("Found %d files with problems in database containing %d read files" % (problems_counter, file_counter))
+
+
+
+
+
 
 # ============================ Script entry point =============================
 
@@ -437,6 +509,12 @@ if __name__ == "__main__":
                           metavar='TIMEPOINT',
                           help='TIMEPOINT for which the samples should be listed')
 
+    # ========================= check-* argument parser ========================
+
+    parser_check_readfiles = subparsers.add_parser('check-readfiles', help='Check readfiles assignment in database')
+    parser_check_readfiles.add_argument(metavar='DIR', nargs='*', type=str, dest='dirs',help='Directories with read files which should be compared to the files in the database')
+
+
     # ========================= top-level argument parser ==========================
 
 
@@ -476,5 +554,7 @@ if __name__ == "__main__":
         main_list_samples(args, parser_list_samples)
     elif args.main_action == 'list-readfiles':
         main_list_readfiles(args, parser_list_readfiles)
+    elif args.main_action == 'check-readfiles':
+        main_check_readfiles(args, parser_check_readfiles)
 
 
