@@ -2,11 +2,12 @@
 
 # (C) 2015, Alexander Korsunsky
 
-import logging, configparser
+import logging
+import configparser
 
-import os, sys
+import os
+import sys
 import re
-import itertools
 
 import sqlite3
 import csv
@@ -25,8 +26,8 @@ config = configparser.ConfigParser()
 
 # default config values
 config[THISCONF] = {
-    'dbfile'   : os.path.join(os.getcwd(), 'samples.db'),
-    'scandirs' : os.getcwd()
+    'dbfile':   os.path.join(os.getcwd(), 'samples.db'),
+    'scandirs': os.getcwd()
 }
 
 for p in sys.path:
@@ -43,15 +44,13 @@ SCANDIRS = [e.strip() for e in config[THISCONF]['scandirs'].split(':')]
 DBFILE = config[THISCONF]['dbfile']
 
 
-
 if __name__ != "__main__":
     logger.debug('Opening sample database {0}'.format(DBFILE))
 
-    db_connection = sqlite3.connect(DBFILE)
-    db_connection.execute("PRAGMA foreign_keys = ON")
+    module_db_connection = sqlite3.connect(DBFILE)
+    module_db_connection.execute("PRAGMA foreign_keys = ON")
 else:
-    db_connection = None
-
+    module_db_connection = None
 
 
 # ================================= Functions =================================
@@ -62,16 +61,15 @@ def scan_reads(directory):
     pat_fasta = re.compile('(.*)\.(?:fasta|fna)$')
 
     # lists of tuples with (fasta_filepath, quality_filepath)
-    list_fastq             = list() # quality_filepath always None
-    list_fastq_symlinks    = list() # quality_filepath always None
-    list_fastaqual         = list()
+    list_fastq = list()  # quality_filepath always None
+    list_fastq_symlinks = list()  # quality_filepath always None
+    list_fastaqual = list()
     list_fastaqual_symlink = list()
-
 
     # walk through directory tree
     for dirpath, dirnames, filenames in os.walk(directory, topdown=True):
         for filename in filenames:
-            fullpath  = os.path.join(dirpath, filename)
+            fullpath = os.path.join(dirpath, filename)
 
             # FASTQ files with nucleotides and quality files
             match = pat_fastq.match(filename)
@@ -108,19 +106,20 @@ def scan_reads(directory):
                 continue
 
     # add symlinks that do not point to any of the files in the list
-    pathlist = [p[0] for p in list_fastq]
+    pathlist = [path[0] for path in list_fastq]
     list_fastq.extend(
-        [p for p in list_fastq_symlinks if not os.readlink(p[0]) in pathlist]
+        [path for path in list_fastq_symlinks if not os.readlink(path[0]) in pathlist]
     )
 
-    pathlist = [p[0] for p in list_fastaqual]
+    pathlist = [path[0] for path in list_fastaqual]
     list_fastaqual.extend(
-        [p for p in list_fastaqual_symlink if not os.readlink(p[0]) in pathlist]
+        [path for path in list_fastaqual_symlink if not os.readlink(path[0]) in pathlist]
     )
 
-    return (list_fastq, list_fastaqual)
+    return list_fastq, list_fastaqual
 
-def animalname_from_alias(alias_or_name, db_connection=db_connection):
+
+def animalname_from_alias(alias_or_name, db_connection=module_db_connection):
     db_cursor = db_connection.cursor()
 
     # Check if alias exists. If it does, return the AnimalName
@@ -140,14 +139,15 @@ def animalname_from_alias(alias_or_name, db_connection=db_connection):
 
 # ============================ Database iterators =============================
 
-def it_animal(db_connection=db_connection):
+def it_animal(db_connection=module_db_connection):
     db_cursor = db_connection.cursor()
 
     db_cursor.execute('SELECT AnimalName FROM Animals')
     for row in db_cursor:
         yield row[0]
 
-def it_sample(animal=None, db_connection=db_connection):
+
+def it_sample(animal=None, db_connection=module_db_connection):
     db_cursor = db_connection.cursor()
 
     if animal:
@@ -159,12 +159,11 @@ def it_sample(animal=None, db_connection=db_connection):
     else:
         db_cursor.execute('SELECT AnimalName, TimePoint FROM Samples')
 
-
     for row in db_cursor:
         yield row
 
 
-def it_readfile(sample=None, db_connection=db_connection):
+def it_readfile(sample=None, db_connection=module_db_connection):
     db_cursor = db_connection.cursor()
 
     if sample:
@@ -180,7 +179,6 @@ def it_readfile(sample=None, db_connection=db_connection):
         db_cursor.execute('SELECT FilePath FROM ReadFiles WHERE SampleID=?', sample_id)
     else:
         db_cursor.execute('SELECT FilePath FROM ReadFiles')
-
 
     for row in db_cursor:
         yield row[0]
@@ -201,14 +199,14 @@ def build_sample_index(regexes, method, db_connection):
 
             if m:
                 break
-        else: # if all regexes were checked, just continue
+        else:  # if all regexes were checked, just continue
             continue
 
         # keys are tuples of (AnimalName, TimePoint)
         k = (m.group(1), int(m.group(2)))
 
         # create a new read files list if it doesnt exist for this sample
-        if not k in samples_readfiles:
+        if k not in samples_readfiles:
             samples_readfiles[k] = list()
 
         # add read file to read files list for this sample
@@ -218,7 +216,8 @@ def build_sample_index(regexes, method, db_connection):
     for samplekey in samples_readfiles:
         # add sample
         try:
-            db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)", (samplekey[0], samplekey[1], method))
+            db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)",
+                              (samplekey[0], samplekey[1], method))
         except sqlite3.IntegrityError:
             # if we failed, we try again with an alias as AnimalName
             animalname = animalname_from_alias(samplekey[0], db_connection=db_connection)
@@ -227,8 +226,10 @@ def build_sample_index(regexes, method, db_connection):
                 logger.warning("Animal name or alias \"%s\" not in database" % samplekey[0])
                 continue
 
-            #logger.debug(     "INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES ('%s', %s, '%s')", animalname, samplekey[1], method)
-            #db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)",         (animalname, samplekey[1], method))
+            # logger.debug("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES ('%s', %s, '%s')",
+            #              animalname, samplekey[1], method)
+            # db_cursor.execute("INSERT OR REPLACE INTO Samples(AnimalName, TimePoint, Method) VALUES (?, ?, ?)",
+            #                   (animalname, samplekey[1], method))
 
         lastrowid = db_cursor.lastrowid
 
@@ -246,10 +247,10 @@ def write_reads(list_fastq, list_fastaqual, db_connection):
     db_cursor = db_connection.cursor()
 
     db_cursor.executemany('INSERT OR IGNORE INTO ReadFiles(FilePath, FilePathQuality, Type) VALUES(?, ?, ?)',
-        [(f[0], f[1], 'fastq') for f in list_fastq])
+                          [(f[0], f[1], 'fastq') for f in list_fastq])
 
     db_cursor.executemany('INSERT OR IGNORE INTO ReadFiles(FilePath, FilePathQuality, Type) VALUES(?, ?, ?)',
-        [(f[0], f[1], 'fastaqual') for f in list_fastaqual])
+                          [(f[0], f[1], 'fastaqual') for f in list_fastaqual])
 
     db_connection.commit()
 
@@ -313,39 +314,39 @@ def init_db(db_connection, animals_csv=None, aliases_csv=None):
     db_connection.commit()
 
 
-
 # ===================== Command line processing functions =====================
 
 def main_index_reads(args, parser):
     for d in args.dirs:
         fq, fa = scan_reads(d)
-        write_reads(fq, fa, db_connection=db_connection)
+        write_reads(fq, fa, db_connection=module_db_connection)
+
 
 def main_init_db(args, parser):
     if args.aliases_csv and not args.animals_csv:
         parser.error("animals_csv required if aliases_csv is provided")
 
-    init_db(db_connection, animals_csv=args.animals_csv, aliases_csv=args.aliases_csv)
+    init_db(module_db_connection, animals_csv=args.animals_csv, aliases_csv=args.aliases_csv)
 
 
 def main_index_samples(args, parser):
     regexes = [
-        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'), # Atypical illumina
-        re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                   # Typical + Atypical illumina
-        re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),     # Amprolium illumina
-        re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                  # Amprolium illumina
+        re.compile('^.*/illumina/Riems_FASTQ/FASTQ/(\w\w\d\d)_(\d+)m_.*\.fastq$'),  # Atypical illumina
+        re.compile('^.*/paul/.*?/(\w\w\d\d)-(\d+)m_.*\.fastq$'),                    # Typical + Atypical illumina
+        re.compile('^.*/Amprolium_FASTQ/12_20_\d/(\d-Gr\d)-(\d+)_.*\.fastq$'),      # Amprolium illumina
+        re.compile('^.*/paul/.*?/(S\d-(\d)-Gruppe\d)_.*\.fastq$')                   # Amprolium illumina
     ]
 
-    build_sample_index(regexes, 'illumina', db_connection=db_connection)
+    build_sample_index(regexes, 'illumina', db_connection=module_db_connection)
 
 
 def main_list_animals(args, parser):
-    for a in it_animal(db_connection=db_connection):
+    for a in it_animal(db_connection=module_db_connection):
         print(a)
 
 
 def main_list_samples(args, parser):
-    for s in it_sample(args.animal, db_connection=db_connection):
+    for s in it_sample(args.animal, db_connection=module_db_connection):
         print("{:<6} {: >d}".format(s[0], s[1]))
 
 
@@ -355,8 +356,8 @@ def main_list_readfiles(args, parser):
         return
 
     elif args.animal and not args.timepoint:
-        for s in it_sample(args.animal, db_connection=db_connection):
-            for r in it_readfile(sample=s, db_connection=db_connection):
+        for s in it_sample(args.animal, db_connection=module_db_connection):
+            for r in it_readfile(sample=s, db_connection=module_db_connection):
                 print(r)
 
     elif args.animal and args.timepoint:
@@ -365,11 +366,12 @@ def main_list_readfiles(args, parser):
             logger.critical('No animal with name or alias \"%s\"', args.animal)
             return
 
-        for r in it_readfile(sample=(an, args.timepoint), db_connection=db_connection):
+        for r in it_readfile(sample=(an, args.timepoint), db_connection=module_db_connection):
             print(r)
 
+
 def main_check_readfiles(args, parser):
-    db_cursor = db_connection.cursor()
+    db_cursor = module_db_connection.cursor()
 
     file_counter = 0
     problems_counter = 0
@@ -406,20 +408,19 @@ def main_check_readfiles(args, parser):
 
         problems_counter += has_problem
 
-
         pat_fastq = re.compile('(.*)\.fastq$')
-        pat_fasta = re.compile('(.*)\.(?:fasta|fna)$')
+        # pat_fasta = re.compile('(.*)\.(?:fasta|fna)$')
 
-        #if "dirs" in args:
-        #    dirs = args.dirs
-        #else:
-        #    dirs = []
+        # if "dirs" in args:
+        #     dirs = args.dirs
+        # else:
+        #     dirs = []
 
         for directory in args.dirs:
             # walk through directory tree
             for dirpath, dirnames, filenames in os.walk(directory, topdown=True):
                 for filename in filenames:
-                    fullpath  = os.path.join(dirpath, filename)
+                    fullpath = os.path.join(dirpath, filename)
 
                     # FASTQ files with nucleotides and quality files
                     match_fq = pat_fastq.match(filename)
@@ -432,12 +433,7 @@ def main_check_readfiles(args, parser):
                     if not db_cursor.fetchone():
                         print("File not in database: `%s`" % fullpath)
 
-
     print("Found %d files with problems in database containing %d read files" % (problems_counter, file_counter))
-
-
-
-
 
 
 # ============================ Script entry point =============================
@@ -446,83 +442,76 @@ if __name__ == "__main__":
     import argparse
 
     # ========================= Main argument parser ==========================
-
-
     parser_top = argparse.ArgumentParser(
         description='Sample database management')
 
     parser_top.add_argument('--log_level', action="store",
-                      type=str, dest='log_level',
-                      metavar='LOG_LEVEL',
-                      help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
+                            type=str, dest='log_level',
+                            metavar='LOG_LEVEL',
+                            help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
 
     parser_top.add_argument('-d', '--database', action="store",
-                      type=str, dest='db_file',
-                      metavar='DB_FILE',
-                      help='Filename of the database that will be used')
+                            type=str, dest='db_file',
+                            metavar='DB_FILE',
+                            help='Filename of the database that will be used')
 
-    subparsers = parser_top.add_subparsers(title='Actions', description='Available database actions', dest='main_action')
-
+    subparsers = parser_top.add_subparsers(title='Actions', description='Available database actions',
+                                           dest='main_action')
 
     # ========================= init-db argument parser ==========================
-
     parser_init_db = subparsers.add_parser('init-db', help='Create an empty read database file')
 
     parser_init_db.add_argument('--animals', action="store",
-                      type=argparse.FileType('rt'), dest='animals_csv',
-                      metavar='ANIMALS_CSV',
-                      help='Filename of a semicolon seperated file name with one tuple of (animal name; animal source; disease condition) per line')
+                                type=argparse.FileType('rt'), dest='animals_csv',
+                                metavar='ANIMALS_CSV',
+                                help='Filename of a semicolon seperated file name with one tuple of '
+                                     '(animal name; animal source; disease condition) per line')
 
     parser_init_db.add_argument('--aliases', action="store",
-                      type=argparse.FileType('rt'), dest='aliases_csv',
-                      metavar='ALIASES_CSV',
-                      help='Filename of a semicolon seperated file name with one tuple of (alias; animal name) per line')
+                                type=argparse.FileType('rt'), dest='aliases_csv',
+                                metavar='ALIASES_CSV',
+                                help='Filename of a semicolon seperated file name with one tuple of'
+                                     ' (alias; animal name) per line')
 
     # ========================= index-reads argument parser ==========================
-
     parser_index_reads = subparsers.add_parser('index-reads', help='Index all read files in subdirectories')
-    parser_index_reads.add_argument(metavar='DIR', nargs='+', type=str, dest='dirs', help='Directories that shall be indexed')
+    parser_index_reads.add_argument(metavar='DIR', nargs='+', type=str, dest='dirs',
+                                    help='Directories that shall be indexed')
 
     # ========================= index-samples argument parser ========================
-
     parser_index_samples = subparsers.add_parser('index-samples', help='Index samples from read files in database')
 
-
     # ========================= list-* argument parser ========================
-
     parser_list_animals = subparsers.add_parser('list-animals', help='List all animals in database')
 
     parser_list_samples = subparsers.add_parser('list-samples', help='List all samples in database')
     parser_list_samples.add_argument('--animal', action="store",
-                          type=str, dest='animal',
-                          metavar='ANIMAL',
-                          help='Animal for which the samples should be listed')
-
+                                     type=str, dest='animal',
+                                     metavar='ANIMAL',
+                                     help='Animal for which the samples should be listed')
 
     parser_list_readfiles = subparsers.add_parser('list-readfiles', help='List all samples in database')
     parser_list_readfiles.add_argument('--animal', action="store",
-                          type=str, dest='animal',
-                          metavar='ANIMAL',
-                          help='Animal for which the readfiles should be listed')
+                                       type=str, dest='animal',
+                                       metavar='ANIMAL',
+                                       help='Animal for which the readfiles should be listed')
     parser_list_readfiles.add_argument('--timepoint', action="store",
-                          type=int, dest='timepoint',
-                          metavar='TIMEPOINT',
-                          help='TIMEPOINT for which the samples should be listed')
+                                       type=int, dest='timepoint',
+                                       metavar='TIMEPOINT',
+                                       help='TIMEPOINT for which the samples should be listed')
 
     # ========================= check-* argument parser ========================
-
     parser_check_readfiles = subparsers.add_parser('check-readfiles', help='Check readfiles assignment in database')
-    parser_check_readfiles.add_argument(metavar='DIR', nargs='*', type=str, dest='dirs',help='Directories with read files which should be compared to the files in the database')
-
+    parser_check_readfiles.add_argument(metavar='DIR', nargs='*', type=str, dest='dirs',
+                                        help='Directories with read files which should be '
+                                             'compared to the files in the database')
 
     # ========================= top-level argument parser ==========================
-
-
     args = parser_top.parse_args()
 
-    if args.log_level in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
+    if args.log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         log_level = getattr(logging, args.log_level.upper())
-    elif args.log_level == None:
+    elif not args.log_level:
         # default is LOGDEFAULT
         log_level = LOGDEFAULT
     else:
@@ -532,15 +521,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
 
     if args.db_file:
-        db_connection = sqlite3.connect(args.db_file)
+        module_db_connection = sqlite3.connect(args.db_file)
     else:
-        db_connection = sqlite3.connect(config[THISCONF]['dbfile'])
-        db_connection.execute("PRAGMA foreign_keys = ON")
+        module_db_connection = sqlite3.connect(config[THISCONF]['dbfile'])
+        module_db_connection.execute("PRAGMA foreign_keys = ON")
 
-    db_connection.execute("PRAGMA foreign_keys = ON")
+    module_db_connection.execute("PRAGMA foreign_keys = ON")
 
-
-    if args.main_action == None:
+    if not args.main_action:
         parser_top.error('No action selected')
     elif args.main_action == 'init-db':
         main_init_db(args, parser_init_db)
@@ -556,5 +544,3 @@ if __name__ == "__main__":
         main_list_readfiles(args, parser_list_readfiles)
     elif args.main_action == 'check-readfiles':
         main_check_readfiles(args, parser_check_readfiles)
-
-
