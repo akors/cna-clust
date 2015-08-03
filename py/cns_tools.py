@@ -1,7 +1,7 @@
 #!/usr/local/bin/python3
 
 # (C) 2015, Alexander Korsunsky
-
+from datetime import datetime
 
 import logging
 import configparser
@@ -9,6 +9,8 @@ import configparser
 import os
 import sys
 import tempfile
+import shlex
+import datetime
 
 import subprocess
 
@@ -85,6 +87,8 @@ class ToolError(Exception):
 
 class Bowtie2Config(running.CommandLineConfig):
     def __init__(self):
+        super().__init__()
+
         self.boolopts = {
         }
 
@@ -94,7 +98,6 @@ class Bowtie2Config(running.CommandLineConfig):
             "--threads": config[THISCONF]['num_threads']
         }
 
-        super(Bowtie2Config, self).__init__()
 
 
 class Bowtie2(running.Tool):
@@ -105,6 +108,7 @@ class Bowtie2(running.Tool):
         super().__init__(running.BinaryExecutable("bowtie2"))
         self.config = Bowtie2Config()
 
+
     def get_name(self):
         return Bowtie2.name
 
@@ -112,17 +116,15 @@ class Bowtie2(running.Tool):
         return Bowtie2.displayname
 
     def run(self, working_dir, seq_infiles, sam_outfile, unal_outfile=None, read_format='fastq'):
-        args = []
-
         if read_format == 'fastq':
-            args.append("-q")
+            args = ["-q"]
         elif read_format == 'fasta':
-            args.append("-f")
+            args = ["-f"]
         else:
             raise AssertionError("Unknown read file format %s" % read_format)
 
         # we won't do anything without an index file
-        if not self.config.valopts["-x"]:
+        if "-x" not in self.config.valopts or not self.config.valopts["-x"]:
             raise AssertionError("Genome index file is not configured")
 
         args.append("-U")
@@ -402,9 +404,88 @@ class samtools_sortsamJob(running.Job):
         return "samtools convert to binary and sort {0}".format(self.sam_infile)
 
 
+class CommandsOnlyFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelname == 'COMMAND'
+
+def loginit(level, dir):
+    if not dir:
+        dir = os.getcwd()
+
+    now = datetime.datetime.now()
+    default_logfilename = "cns-tools_{:%Y-%m-%dT%H%M%S%Z}.log".format(now)
+    command_logfilename = "cns-tools_commands_{:%Y-%m-%dT%H:%M:%S%Z}.log".format(now)
+
+    logging.basicConfig(level=level,
+                        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                        datefmt='%m-%d %H:%M',
+                        filename=os.path.join(dir, default_logfilename),
+                        filemode='w')
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter('%(levelname)-8s: %(message)s'))
+
+    command_logfile = logging.FileHandler(os.path.join(dir, command_logfilename))
+    command_logfile.setFormatter(logging.Formatter('%(message)s'))
+    command_logfile.addFilter(CommandsOnlyFilter())
+
+    # add the handler to the root logger
+    logging.getLogger('').addHandler(console)
+    logging.getLogger('').addHandler(command_logfile)
+
+    logging.info("Hello. My PID is: %d", os.getpid())
+    logging.info("Script started with: %s", " ".join((shlex.quote(tok) for tok in sys.argv)))
+
+
 # ============================ Script entry point =============================
 if __name__ == "__main__":
     import argparse
+
+    # ============================ align-classical =============================
+    def main_align_classical(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get output directory
+        if not args.output_dir:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        if not args.num_threads:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
+
+        jobs = list()
+        samples = list()
+
+        # add all illumina samples with atypical bse
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
+                          'WHERE Method="illumina" AND (Condition IS "classical" OR AnimalName GLOB ("KT*"))')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            # get read files
+            db_cursor.execute('SELECT FilePath from ReadFiles NATURAL JOIN Samples WHERE AnimalName=? AND TimePoint=?',
+                              (sample[0], sample[1]))
+            readfiles = [row[0] for row in db_cursor]
+
+            j = Bowtie2Job(
+                working_dir=os.path.join(output_dir, samplename),
+                seq_infiles=readfiles,
+                sam_outfile=samplename + ".sam",
+                unal_outfile=(samplename + ".unal.fastq"))
+
+            # set paralell processing settings
+            j.tool.config.valopts["--threads"] = num_threads
+
+            jobs.append(j)
+
+        running.run_jobs(jobs, num_threads=1)
 
     # ============================ align-atypical =============================
     def main_align_atypical(args, parser):
@@ -427,12 +508,7 @@ if __name__ == "__main__":
 
         # add all illumina samples with atypical bse
         db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
-        samples.extend(db_cursor)
-
-        # add atypical controls
-        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+                          'WHERE Method="illumina" AND (Condition IN ("ltype", "htype") OR AnimalName GLOB ("TR*"))')
         samples.extend(db_cursor)
 
         for sample in samples:
@@ -538,14 +614,9 @@ if __name__ == "__main__":
         jobs = list()
         samples = list()
 
-        # add all illumina samples with atypical bse
+        # add all illumina samples with atypical bse or TR controls
         db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
-        samples.extend(db_cursor)
-
-        # add atypical controls
-        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+                          'WHERE Method="illumina" AND (Condition IN ("ltype", "htype") OR AnimalName GLOB ("TR*"))')
         samples.extend(db_cursor)
 
         for sample in samples:
@@ -574,7 +645,6 @@ if __name__ == "__main__":
 
         running.run_jobs(jobs, num_threads=1)
 
-
     # ========================= Main argument parser ==========================
     parser_top = argparse.ArgumentParser(
         description='Batch-Process CNS sample')
@@ -594,13 +664,26 @@ if __name__ == "__main__":
     subparsers = parser_top.add_subparsers(title='Actions', description='Available batch operations',
                                            dest='main_action')
 
+    # ========================= align-classical argument parser ==========================
+    parser_align_classical = subparsers.add_parser('align-classical', help='Align readfiles for classical samples')
+
+    parser_align_classical.add_argument('-o', '--output_directory', action="store",
+                                       type=str, dest='output_dir',
+                                       metavar='OUTPUT_DIRECTORY',
+                                       help='Write output to to OUTPUT_DIRECTORY. Default is current working directory.')
+
+    parser_align_classical.add_argument('-p', '--threads', action="store",
+                                       type=int, dest='num_threads',
+                                       metavar='NUM_THREADS',
+                                       help='Use NUM_THREADS processors simultanously')
+
     # ========================= align-atypical argument parser ==========================
     parser_align_atypical = subparsers.add_parser('align-atypical', help='Align readfiles for atypical samples')
 
     parser_align_atypical.add_argument('-o', '--output_directory', action="store",
                                        type=str, dest='output_dir',
                                        metavar='OUTPUT_DIRECTORY',
-                                       help='Download files to OUTPUT_DIRECTORY. Default is current working directory.')
+                                       help='Write output to OUTPUT_DIRECTORY. Default is current working directory.')
 
     parser_align_atypical.add_argument('-p', '--threads', action="store",
                                        type=int, dest='num_threads',
@@ -661,7 +744,7 @@ if __name__ == "__main__":
 
     args = parser_top.parse_args()
 
-    logging.basicConfig(level=args.log_level, format='%(levelname)1s:%(message)s')
+    loginit(args.log_level, args.output_dir)
 
     global db_connection
 
@@ -671,10 +754,10 @@ if __name__ == "__main__":
     else:
         db_connection = samples_db.module_db_connection
 
-    print("Hello. My PID is: %d" % os.getpid())
-
     if not args.main_action:
         parser_top.error('No action selected')
+    elif args.main_action == 'align-classical':
+        main_align_classical(args, parser_align_classical)
     elif args.main_action == 'align-atypical':
         main_align_atypical(args, parser_align_atypical)
     elif args.main_action == 'sortsam-atypical':
