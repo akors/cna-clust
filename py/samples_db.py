@@ -446,8 +446,10 @@ if __name__ == "__main__":
         description='Sample database management')
 
     parser_top.add_argument('--log_level', action="store",
-                            type=str, dest='log_level',
+                            type=str.upper, dest='log_level',
                             metavar='LOG_LEVEL',
+                            choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+                            default=LOGDEFAULT,
                             help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
 
     parser_top.add_argument('-d', '--database', action="store",
@@ -509,16 +511,7 @@ if __name__ == "__main__":
     # ========================= top-level argument parser ==========================
     args = parser_top.parse_args()
 
-    if args.log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-        log_level = getattr(logging, args.log_level.upper())
-    elif not args.log_level:
-        # default is LOGDEFAULT
-        log_level = LOGDEFAULT
-    else:
-        print("Unknown logging level {0}. Using {1}.".format(args.log_level, logging.getLevelName(LOGDEFAULT)))
-        log_level = LOGDEFAULT
-
-    logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
+    logging.basicConfig(level=args.log_level, format='%(levelname)1s:%(message)s')
 
     if args.db_file:
         module_db_connection = sqlite3.connect(args.db_file)

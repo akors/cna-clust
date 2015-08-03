@@ -574,9 +574,11 @@ if __name__ == "__main__":
         description='Batch-Process CNS sample')
 
     parser_top.add_argument('--log_level', action="store",
-                      type=str, dest='log_level',
-                      metavar='LOG_LEVEL',
-                      help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
+                            type=str.upper, dest='log_level',
+                            metavar='LOG_LEVEL',
+                            choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+                            default=LOGDEFAULT,
+                            help='Set log level to be LOG_LEVEL. Can be one of: DEBUG,INFO,WARNING,ERROR,CRITICAL')
 
     parser_top.add_argument('-d', '--database', action="store",
                       type=str, dest='db_file',
@@ -657,16 +659,7 @@ if __name__ == "__main__":
 
     args = parser_top.parse_args()
 
-    if args.log_level in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
-        log_level = getattr(logging, args.log_level.upper())
-    elif args.log_level == None:
-        # default is LOGDEFAULT
-        log_level = LOGDEFAULT
-    else:
-        print("Unknown logging level {0}. Using {1}.".format(args.log_level, logging.getLevelName(LOGDEFAULT)))
-        log_level = LOGDEFAULT
-
-    logging.basicConfig(level=log_level, format='%(levelname)1s:%(message)s')
+    logging.basicConfig(level=args.log_level, format='%(levelname)1s:%(message)s')
 
     global db_connection
 
