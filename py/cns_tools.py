@@ -744,7 +744,16 @@ if __name__ == "__main__":
 
     args = parser_top.parse_args()
 
-    loginit(args.log_level, args.output_dir)
+    # get output directory
+    if not args.output_dir:
+        output_dir = os.getcwd()
+    else:
+        output_dir = args.output_dir
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    loginit(args.log_level, output_dir)
 
     global db_connection
 
