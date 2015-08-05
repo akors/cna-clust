@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/env python3
 
 # (C) 2015, Alexander Korsunsky
 from datetime import datetime
@@ -107,7 +107,6 @@ class Bowtie2(running.Tool):
     def __init__(self):
         super().__init__(running.BinaryExecutable("bowtie2"))
         self.config = Bowtie2Config()
-
 
     def get_name(self):
         return Bowtie2.name
@@ -408,6 +407,7 @@ class CommandsOnlyFilter(logging.Filter):
     def filter(self, record):
         return record.levelname == 'COMMAND'
 
+
 def loginit(level, dir):
     if not dir:
         dir = os.getcwd()
@@ -668,14 +668,15 @@ if __name__ == "__main__":
     parser_align_classical = subparsers.add_parser('align-classical', help='Align readfiles for classical samples')
 
     parser_align_classical.add_argument('-o', '--output_directory', action="store",
-                                       type=str, dest='output_dir',
-                                       metavar='OUTPUT_DIRECTORY',
-                                       help='Write output to to OUTPUT_DIRECTORY. Default is current working directory.')
+                                        type=str, dest='output_dir',
+                                        metavar='OUTPUT_DIRECTORY',
+                                        help='Write output to to OUTPUT_DIRECTORY. '
+                                             'Default is current working directory.')
 
     parser_align_classical.add_argument('-p', '--threads', action="store",
-                                       type=int, dest='num_threads',
-                                       metavar='NUM_THREADS',
-                                       help='Use NUM_THREADS processors simultanously')
+                                        type=int, dest='num_threads',
+                                        metavar='NUM_THREADS',
+                                        help='Use NUM_THREADS processors simultanously')
 
     # ========================= align-atypical argument parser ==========================
     parser_align_atypical = subparsers.add_parser('align-atypical', help='Align readfiles for atypical samples')
@@ -773,3 +774,4 @@ if __name__ == "__main__":
         main_sortsam_atypical(args, parser_sortsam_atypical)
     elif args.main_action == 'assemble-atypical':
         main_assemble_atypical(args, parser_assemble_atypical)
+
