@@ -23,9 +23,16 @@ LOGDEFAULT = logging.INFO
 logger = logging.getLogger(__name__)
 logging.addLevelName(LOGLEVEL_COMMAND, 'COMMAND')
 
-
-
 # ============================= Class definitions =============================
+
+class CommandsOnlyFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno == LOGLEVEL_COMMAND
+
+class NoCommandsFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno  != LOGLEVEL_COMMAND
+
 
 class BinaryExecutable:
     """ Contains the executable, and combines executable with parameters.
@@ -139,22 +146,21 @@ class Tool(object):
         __stderr_file, stderrfname = tempfile.mkstemp(prefix='stderr-' +
                 self.get_name() + '_', suffix='.txt', dir=working_dir)
 
-        logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
-                     self.get_displayname(), self.executable.get_execute_line(*args), working_dir)
+        # log the command that we are running
+        logger.log(LOGLEVEL_COMMAND,
+                   " ".join((shlex.quote(tok) for tok in self.executable.get_execute_tokens(*args))),
+                   extra={'cwd': working_dir}
+                   )
 
-        logger.log(LOGLEVEL_COMMAND, "cd %s; %s\n",
-            shlex.quote(working_dir), " ".join(
-            (shlex.quote(tok) for tok in self.executable.get_execute_tokens(*args))
-        ))
-
-        # launch process
-        __process = subprocess.Popen(
-           self.executable.get_execute_tokens(*args), cwd=working_dir,
-           stdout=__stdout_file, stderr=__stderr_file, close_fds=True,
-        )
-        __process.wait()
-
-        return __process.returncode, stdoutfname, stderrfname
+        # # launch process
+        # __process = subprocess.Popen(
+        #     self.executable.get_execute_tokens(*args), cwd=working_dir,
+        #     stdout=__stdout_file, stderr=__stderr_file, close_fds=True,
+        # )
+        # __process.wait()
+        #
+        # return __process.returncode, stdoutfname, stderrfname
+        return 0, stdoutfname, stderrfname
 
     def run_with_config(self, working_dir, *args, config=None):
         if config is None:

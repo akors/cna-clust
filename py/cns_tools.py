@@ -324,8 +324,11 @@ class samtools_sortsam(running.Tool):
         __sort_stderr_file, sort_stderrfname = \
             tempfile.mkstemp(prefix='stderr_samtools-sort_', suffix='.txt', dir=working_dir)
 
-        logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
-                     self.get_displayname(), self.executable.get_execute_line(*view_args), working_dir)
+        # log the command that we are running
+        logger.log(running.LOGLEVEL_COMMAND,
+                   " ".join((shlex.quote(tok) for tok in self.executable.get_execute_tokens(*view_args))),
+                   extra={'cwd': working_dir}
+                   )
 
         # launch view process
         __view_process = subprocess.Popen(
@@ -336,8 +339,11 @@ class samtools_sortsam(running.Tool):
         # try to not kill the system when reading the input file
         ionice(__view_process.pid)
 
-        logger.debug("Launching tool `%s` with command line `%s` in directory `%s`",
-                     self.get_displayname(), self.executable.get_execute_line(*sort_args), working_dir)
+        # log the command that we are running
+        logger.log(running.LOGLEVEL_COMMAND,
+                   " ".join((shlex.quote(tok) for tok in self.executable.get_execute_tokens(*sort_args))),
+                   extra={'cwd': working_dir}
+                   )
 
         # launch sort process
         __sort_process = subprocess.Popen(
@@ -403,9 +409,31 @@ class samtools_sortsamJob(running.Job):
         return "samtools convert to binary and sort {0}".format(self.sam_infile)
 
 
-class CommandsOnlyFilter(logging.Filter):
-    def filter(self, record):
-        return record.levelname == 'COMMAND'
+# Custom formatter
+class MyFormatter(logging.Formatter):
+    basic_fmt = "%(asctime)s %(name)-12s %(levelname)-8s %(message)s"
+    cmd_fmt = "%(asctime)s %(name)-12s %(levelname)-8s Running command line `%(message)s` in directory `%(cwd)s`"
+
+    def __init__(self, fmt=basic_fmt):
+        logging.Formatter.__init__(self, fmt)
+
+    def format(self, record):
+
+        # Save the original format configured by the user
+        # when the logger formatter was instantiated
+        format_orig = self._fmt
+
+        # Replace the original format with one customized by logging level
+        if record.levelno == running.LOGLEVEL_COMMAND:
+            self._fmt = MyFormatter.cmd_fmt
+
+        # Call the original formatter class to do the grunt work
+        result = logging.Formatter.format(self, record)
+
+        # Restore the original format configured by the user
+        self._fmt = format_orig
+
+        return result
 
 
 def loginit(level, dir):
@@ -418,19 +446,23 @@ def loginit(level, dir):
 
     logging.basicConfig(level=level,
                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-                        datefmt='%m-%d %H:%M',
                         filename=os.path.join(dir, default_logfilename),
                         filemode='w')
+
+    default_handler = logging.FileHandler(os.path.join(dir, default_logfilename))
+    default_handler.setFormatter(MyFormatter())
 
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter('%(levelname)-8s: %(message)s'))
+    console.addFilter(running.NoCommandsFilter()) # in the console, we don't care about running commands
 
     command_logfile = logging.FileHandler(os.path.join(dir, command_logfilename))
-    command_logfile.setFormatter(logging.Formatter('%(message)s'))
-    command_logfile.addFilter(CommandsOnlyFilter())
+    command_logfile.setFormatter(logging.Formatter('cd %(cwd)s ; %(message)s'))
+    command_logfile.addFilter(running.CommandsOnlyFilter())
 
     # add the handler to the root logger
+    logging.getLogger('').addHandler(default_handler)
     logging.getLogger('').addHandler(console)
     logging.getLogger('').addHandler(command_logfile)
 
