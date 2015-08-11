@@ -436,13 +436,16 @@ class MyFormatter(logging.Formatter):
         return result
 
 
-def loginit(level, dir):
+def loginit(level, dir, toolname):
     if not dir:
         dir = os.getcwd()
 
+    if not toolname:
+        toolname = ""
+
     now = datetime.datetime.now()
-    default_logfilename = "cns-tools_{:%Y-%m-%dT%H%M%S%Z}.log".format(now)
-    command_logfilename = "cns-tools_commands_{:%Y-%m-%dT%H:%M:%S%Z}.log".format(now)
+    default_logfilename = "cns-tools_{:s}_{:%Y-%m-%dT%H%M%S%Z}.log".format(toolname, now)
+    command_logfilename = "cns-tools_{:s}_commands_{:%Y-%m-%dT%H:%M:%S%Z}.log".format(toolname, now)
 
     logging.basicConfig(level=level,
                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
@@ -564,6 +567,46 @@ if __name__ == "__main__":
 
         running.run_jobs(jobs, num_threads=1)
 
+    # ============================ sortsam-classical =============================
+    def main_sortsam_classical(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get input directory
+        if not args.input_dir:
+            input_dir = os.getcwd()
+        else:
+            input_dir = args.input_dir
+
+        # get output directory
+        if not args.output_dir:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        if not args.num_threads:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
+
+        jobs = list()
+        samples = list()
+
+
+        # add all illumina samples with classical bse
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
+                          'WHERE Method="illumina" AND (Condition IS "classical" OR AnimalName GLOB ("KT*"))')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            jobs.append(samtools_sortsamJob(
+                working_dir=os.path.join(output_dir, samplename),
+                sam_infile=os.path.join(input_dir, samplename, samplename + ".sam"),
+                bam_outfile=samplename + ".sorted.bam"))
+
+        running.run_jobs(jobs, num_threads=num_threads)
 
     # ============================ sortsam-atypical =============================
     def main_sortsam_atypical(args, parser):
@@ -591,13 +634,9 @@ if __name__ == "__main__":
         samples = list()
 
         # add all illumina samples with atypical bse
-        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND Condition IN ("ltype", "htype")')
-        samples.extend(db_cursor)
 
-        # add atypical controls
         db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
-                          'WHERE Method="illumina" AND AnimalName GLOB ("TR*")')
+                          'WHERE Method="illumina" AND (Condition IN ("ltype", "htype") OR AnimalName GLOB ("TR*"))')
         samples.extend(db_cursor)
 
         for sample in samples:
@@ -693,6 +732,11 @@ if __name__ == "__main__":
                             metavar='DB_FILE',
                             help='Filename of the samples database. Default is %s.' % samples_db.DBFILE)
 
+    parser_top.add_argument('-p', '--threads', action="store",
+                            type=int, dest='num_threads',
+                            metavar='NUM_THREADS',
+                            help='Use NUM_THREADS processors simultanously')
+
     subparsers = parser_top.add_subparsers(title='Actions', description='Available batch operations',
                                            dest='main_action')
 
@@ -705,11 +749,6 @@ if __name__ == "__main__":
                                         help='Write output to to OUTPUT_DIRECTORY. '
                                              'Default is current working directory.')
 
-    parser_align_classical.add_argument('-p', '--threads', action="store",
-                                        type=int, dest='num_threads',
-                                        metavar='NUM_THREADS',
-                                        help='Use NUM_THREADS processors simultanously')
-
     # ========================= align-atypical argument parser ==========================
     parser_align_atypical = subparsers.add_parser('align-atypical', help='Align readfiles for atypical samples')
 
@@ -717,11 +756,6 @@ if __name__ == "__main__":
                                        type=str, dest='output_dir',
                                        metavar='OUTPUT_DIRECTORY',
                                        help='Write output to OUTPUT_DIRECTORY. Default is current working directory.')
-
-    parser_align_atypical.add_argument('-p', '--threads', action="store",
-                                       type=int, dest='num_threads',
-                                       metavar='NUM_THREADS',
-                                       help='Use NUM_THREADS processors simultanously')
 
     # ========================= align-atypical argument parser ==========================
     parser_sortsam_atypical = subparsers.add_parser('sortsam-atypical',
@@ -737,10 +771,21 @@ if __name__ == "__main__":
                                          metavar='OUTPUT_DIRECTORY',
                                          help='Write files to OUTPUT_DIRECTORY. Default is current working directory.')
 
-    parser_sortsam_atypical.add_argument('-p', '--threads', action="store",
-                                         type=int, dest='num_threads',
-                                         metavar='NUM_THREADS',
-                                         help='Use NUM_THREADS processors simultanously')
+
+    # ========================= align-atypical argument parser ==========================
+    parser_sortsam_classical = subparsers.add_parser('sortsam-classical',
+                                                    help='Sort aligned SAM files for classical samples')
+
+    parser_sortsam_classical.add_argument('-i', '--input_directory', action="store",
+                                         type=str, dest='input_dir',
+                                         metavar='INPUT_DIRECTORY',
+                                         help='Read files from INPUT_DIRECTORY. Default is current working directory.')
+
+    parser_sortsam_classical.add_argument('-o', '--output_directory', action="store",
+                                         type=str, dest='output_dir',
+                                         metavar='OUTPUT_DIRECTORY',
+                                         help='Write files to OUTPUT_DIRECTORY. Default is current working directory.')
+
 
     # ========================= assemble-atypical argument parser ==========================
     parser_assemble_atypical = subparsers.add_parser('assemble-atypical',
@@ -770,11 +815,6 @@ if __name__ == "__main__":
                                           metavar='MASK_FILE',
                                           help='Exclude all transcripts that are found within MASK_FILE')
 
-    parser_assemble_atypical.add_argument('-p', '--threads', action="store",
-                                          type=int, dest='num_threads',
-                                          metavar='NUM_THREADS',
-                                          help='Use NUM_THREADS processors simultanously')
-
     args = parser_top.parse_args()
 
     # get output directory
@@ -786,7 +826,7 @@ if __name__ == "__main__":
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    loginit(args.log_level, output_dir)
+    loginit(args.log_level, output_dir, args.main_action)
 
     global db_connection
 
@@ -804,6 +844,8 @@ if __name__ == "__main__":
         main_align_atypical(args, parser_align_atypical)
     elif args.main_action == 'sortsam-atypical':
         main_sortsam_atypical(args, parser_sortsam_atypical)
+    elif args.main_action == 'sortsam-classical':
+        main_sortsam_classical(args, parser_sortsam_classical)
     elif args.main_action == 'assemble-atypical':
         main_assemble_atypical(args, parser_assemble_atypical)
 
