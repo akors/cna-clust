@@ -152,15 +152,14 @@ class Tool(object):
                    extra={'cwd': working_dir}
                    )
 
-        # # launch process
-        # __process = subprocess.Popen(
-        #     self.executable.get_execute_tokens(*args), cwd=working_dir,
-        #     stdout=__stdout_file, stderr=__stderr_file, close_fds=True,
-        # )
-        # __process.wait()
-        #
-        # return __process.returncode, stdoutfname, stderrfname
-        return 0, stdoutfname, stderrfname
+        # launch process
+        __process = subprocess.Popen(
+            self.executable.get_execute_tokens(*args), cwd=working_dir,
+            stdout=__stdout_file, stderr=__stderr_file, close_fds=True,
+        )
+        __process.wait()
+
+        return __process.returncode, stdoutfname, stderrfname
 
     def run_with_config(self, working_dir, *args, config=None):
         if config is None:

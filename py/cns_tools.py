@@ -716,6 +716,76 @@ if __name__ == "__main__":
 
         running.run_jobs(jobs, num_threads=1)
 
+
+    # ============================ assemble-classical =============================
+    def main_assemble_classical(args, parser):
+        global db_connection
+        db_cursor = db_connection.cursor()
+
+        # get output directory
+        if not args.output_dir:
+            output_dir = os.getcwd()
+        else:
+            output_dir = args.output_dir
+
+        # get input directory
+        if not args.input_dir:
+            input_dir = config.get(THISCONF, 'aligndir', fallback=os.getcwd())
+        else:
+            input_dir = args.input_dir
+
+        if not args.num_threads:
+            num_threads = config.getint(THISCONF, 'num_threads', fallback=1)
+        else:
+            num_threads = args.num_threads
+
+        annotation_file = None
+        if args.annotation_file:
+            annotation_file = args.annotation_file
+
+        mask_file = None
+        if args.mask_file:
+            mask_file = args.mask_file
+
+        # per_cufflink_threads = 8 # cufflinks is "aware" of multiple threads, but utilizes only a portion of them.
+
+        jobs = list()
+        samples = list()
+
+
+        # add all illumina samples with classical bse
+        db_cursor.execute('SELECT AnimalName, TimePoint, Method FROM Samples NATURAL JOIN Animals '
+                          'WHERE Method="illumina" AND (Condition IS "classical" OR AnimalName GLOB ("KT*"))')
+        samples.extend(db_cursor)
+
+        for sample in samples:
+            samplename = "{:s}_{:d}m_{:s}".format(sample[0], sample[1], sample[2])
+
+            wd = os.path.join(output_dir, samplename)
+
+            if has_cufflinks_result(wd):
+                logger.warning("It seems that cufflinks has already been run with the directory `%s`. Skipping.",
+                               wd)
+                continue
+
+            j = cufflinksJob(working_dir=wd,
+                             bam_infile=os.path.join(input_dir, samplename, samplename + ".sorted.bam"))
+
+            # Use at most per_cufflink_threads threads for one job
+            j.tool.config.valopts["--num-threads"] = num_threads
+
+            if annotation_file:
+                j.tool.config.valopts["--GTF-guide"] = annotation_file
+
+            if mask_file:
+                j.tool.config.valopts["--mask-file"] = mask_file
+
+            jobs.append(j)
+
+        running.run_jobs(jobs, num_threads=1)
+
+
+
     # ========================= Main argument parser ==========================
     parser_top = argparse.ArgumentParser(
         description='Batch-Process CNS sample')
@@ -772,7 +842,7 @@ if __name__ == "__main__":
                                          help='Write files to OUTPUT_DIRECTORY. Default is current working directory.')
 
 
-    # ========================= align-atypical argument parser ==========================
+    # ========================= align-classical argument parser ==========================
     parser_sortsam_classical = subparsers.add_parser('sortsam-classical',
                                                     help='Sort aligned SAM files for classical samples')
 
@@ -805,12 +875,36 @@ if __name__ == "__main__":
 
     parser_assemble_atypical.add_argument('--annotation-file', action="store",
                                           type=str, dest='annotation_file', nargs='?',
-                                          default=config.get(THISCONF, "annotation_file",
-                                                             fallback=None),
                                           metavar='ANNOTATION_FILE',
                                           help='Use gtf/gff annotation file as assembly guide')
 
     parser_assemble_atypical.add_argument('--mask-file', action="store",
+                                          type=str, dest='mask_file', nargs='?',
+                                          metavar='MASK_FILE',
+                                          help='Exclude all transcripts that are found within MASK_FILE')
+
+    # ========================= assemble-classical argument parser ==========================
+    parser_assemble_classical = subparsers.add_parser('assemble-classical',
+                                                     help='Assemble aligned&sorted BAM read files for classical samples')
+
+    parser_assemble_classical.add_argument('-i', '--input_directory', action="store",
+                                          type=str, dest='input_dir',
+                                          metavar='INPUT_DIRECTORY',
+                                          help='Load aligned files from INPUT_DIRECTORY.'
+                                               'Default is the current working directory.')
+
+    parser_assemble_classical.add_argument('-o', '--output_directory', action="store",
+                                          type=str, dest='output_dir',
+                                          metavar='OUTPUT_DIRECTORY',
+                                          help='Write output to OUTPUT_DIRECTORY.'
+                                               'Default is current working directory.')
+
+    parser_assemble_classical.add_argument('--annotation-file', action="store",
+                                          type=str, dest='annotation_file', nargs='?',
+                                          metavar='ANNOTATION_FILE',
+                                          help='Use gtf/gff annotation file as assembly guide')
+
+    parser_assemble_classical.add_argument('--mask-file', action="store",
                                           type=str, dest='mask_file', nargs='?',
                                           metavar='MASK_FILE',
                                           help='Exclude all transcripts that are found within MASK_FILE')
@@ -842,10 +936,12 @@ if __name__ == "__main__":
         main_align_classical(args, parser_align_classical)
     elif args.main_action == 'align-atypical':
         main_align_atypical(args, parser_align_atypical)
-    elif args.main_action == 'sortsam-atypical':
-        main_sortsam_atypical(args, parser_sortsam_atypical)
     elif args.main_action == 'sortsam-classical':
         main_sortsam_classical(args, parser_sortsam_classical)
+    elif args.main_action == 'sortsam-atypical':
+        main_sortsam_atypical(args, parser_sortsam_atypical)
+    elif args.main_action == 'assemble-classical':
+        main_assemble_classical(args, parser_assemble_classical)
     elif args.main_action == 'assemble-atypical':
         main_assemble_atypical(args, parser_assemble_atypical)
 
